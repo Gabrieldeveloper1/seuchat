@@ -28,6 +28,7 @@ interface Ctx {
   linkPhone(phone: string, code?: string): Promise<{ step: "code" | "done"; verified?: boolean }>;
   addContactByPhone(phone: string, alias: string): Promise<void>;
   setProfileName(name: string): void;
+  setProfileBio(bio: string): void;
   changePassword(oldPass: string, newPass: string): Promise<void>;
   deleteMessage(id: string): void;
   markBackupDone(): void;
@@ -51,7 +52,7 @@ interface Ctx {
   sendAudio(peer: string, dataUrl: string, dur: number): Promise<void>;
   setProfileImages(avatar?: string | null, banner?: string | null): void;
   createGroup(name: string, members: string[]): Promise<string>;
-  updateGroup(gid: string, patch: { name?: string; members?: string[]; ttl?: number }): Promise<void>;
+  updateGroup(gid: string, patch: { name?: string; members?: string[]; ttl?: number; avatar?: string | null }): Promise<void>;
   leaveGroup(gid: string): Promise<void>;
   acceptGroup(gid: string): void;
   setCallRelayOnly(on: boolean): void;
@@ -188,7 +189,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         const p = JSON.parse(env.payload) as {
           t: string; id?: string; kind?: string; text?: string; image?: string; audio?: string; dur?: number; ttl?: number; ts?: number; ids?: string[];
-          n?: string; rt?: { id?: string; text?: string }; gid?: string; name?: string; members?: string[]; av?: string; bn?: string;
+          n?: string; bio?: string; rt?: { id?: string; text?: string }; gid?: string; name?: string; members?: string[]; av?: string; bn?: string; avatar?: string;
         };
 
         if (typeof p.n === "string" && p.n.trim()) {
@@ -214,6 +215,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else if (p.t === "prof") {
           if (contact.requested) throw new Error("perfil de desconhecido");
           const patch: Partial<Contact> = {};
+          if (typeof p.bio === "string") patch.bio = p.bio.trim().slice(0, 280) || undefined;
           for (const [k, v, max] of [["avatar", p.av, 60_000], ["banner", p.bn, 120_000]] as const) {
             if (typeof v !== "string") continue;
             if (v === "") patch[k] = undefined;
@@ -233,7 +235,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             update((s) => ({ ...s, groups: s.groups.filter((g) => g.id !== gid), messages: s.messages.filter((m) => m.peer !== `g:${gid}`) }));
           } else {
             const ttl = TTLS.has(p.ttl ?? 0) ? (p.ttl ?? 0) : 0;
-            const g: Group = { id: gid, name: p.name.slice(0, 40), owner: ex?.owner ?? row.sender_id, members: [...new Set(p.members)], ttl, addedAt: ex?.addedAt ?? Date.now(), requested: ex ? ex.requested : !!contact.requested };
+            let avatar = ex?.avatar;
+            if (typeof p.avatar === "string") {
+              if (p.avatar === "") avatar = undefined;
+              else if (p.avatar.startsWith("data:image/jpeg;base64,") && p.avatar.length <= 60_000 && !(await dataUrlIsBlocked(p.avatar))) avatar = p.avatar;
+            }
+            const g: Group = { id: gid, name: p.name.slice(0, 40), owner: ex?.owner ?? row.sender_id, members: [...new Set(p.members)], ttl, addedAt: ex?.addedAt ?? Date.now(), requested: ex ? ex.requested : !!contact.requested, avatar };
             update((s) => ({ ...s, groups: ex ? s.groups.map((x) => (x.id === gid ? g : x)) : [...s.groups, g] }));
           }
         } else if (p.t === "gleave") {
@@ -625,10 +632,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (peer: string) => {
       const pr = localRef.current?.profile;
       if (!pr) return;
-      await transmit(peer, JSON.stringify({ t: "prof", n: pr.name || undefined, av: pr.avatar ?? "", bn: pr.banner ?? "" }));
+      await transmit(peer, JSON.stringify({ t: "prof", n: pr.name || undefined, bio: pr.bio ?? "", av: pr.avatar ?? "", bn: pr.banner ?? "" }));
       update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === peer ? { ...c, profSent: true } : c)) }));
     },
     [transmit, update],
+  );
+
+  const setProfileBio = useCallback(
+    (bio: string) => {
+      const clean = bio.trim().slice(0, 280);
+      update((s) => ({ ...s, profile: { ...s.profile, bio: clean || undefined } }));
+      for (const c of localRef.current?.contacts ?? []) if (!c.blocked && !c.requested) void sendProfile(c.id).catch(() => {});
+    },
+    [update, sendProfile],
   );
 
   const sendBody = useCallback(
@@ -692,7 +708,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const broadcastGroup = useCallback(
     async (g: Group, also: string[] = []) => {
       const me = keysRef.current!.userId;
-      const body = (members: string[]) => JSON.stringify({ t: "ginv", gid: g.id, name: g.name, members, ttl: g.ttl, n: localRef.current?.profile.name || undefined });
+      const body = (members: string[]) => JSON.stringify({ t: "ginv", gid: g.id, name: g.name, members, ttl: g.ttl, avatar: g.avatar ?? "", n: localRef.current?.profile.name || undefined });
       await Promise.allSettled([
         ...g.members.filter((m) => m !== me).map((m) => transmit(m, body(g.members))),
         ...also.map((m) => transmit(m, body(g.members))), // removidos: recebem lista sem eles e apagam o grupo
@@ -716,13 +732,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateGroup = useCallback(
-    async (gid: string, patch: { name?: string; members?: string[]; ttl?: number }) => {
+    async (gid: string, patch: { name?: string; members?: string[]; ttl?: number; avatar?: string | null }) => {
       const me = keysRef.current!.userId;
       const g = localRef.current?.groups.find((x) => x.id === gid);
       if (!g || g.owner !== me) throw new Error("Só quem criou o grupo pode alterá-lo");
       const members = patch.members ? [me, ...new Set(patch.members.filter((m) => m !== me))] : g.members;
       if (members.length > 20) throw new Error("Máximo de 20 membros");
-      const ng: Group = { ...g, name: (patch.name ?? g.name).trim().slice(0, 40) || g.name, members, ttl: patch.ttl ?? g.ttl };
+      const ng: Group = {
+        ...g,
+        name: (patch.name ?? g.name).trim().slice(0, 40) || g.name,
+        members,
+        ttl: patch.ttl ?? g.ttl,
+        avatar: patch.avatar === undefined ? g.avatar : patch.avatar ?? undefined,
+      };
       update((s) => ({ ...s, groups: s.groups.map((x) => (x.id === gid ? ng : x)) }));
       await broadcastGroup(ng, g.members.filter((m) => !members.includes(m)));
     },
@@ -855,13 +877,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       phase, local, userId, busy, error, notice, online, onboardingMnemonic,
       clearOnboarding: () => setOnb(null),
       clearNotice: () => setNotice(null),
-      createAccount, linkPhone, addContactByPhone, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+      createAccount, linkPhone, addContactByPhone, setProfileName, setProfileBio, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl,
       sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
-    [phase, local, userId, busy, error, notice, online, onboardingMnemonic, createAccount, linkPhone, addContactByPhone, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+    [phase, local, userId, busy, error, notice, online, onboardingMnemonic, createAccount, linkPhone, addContactByPhone, setProfileName, setProfileBio, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],

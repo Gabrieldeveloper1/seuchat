@@ -16,6 +16,7 @@
     "@fontsource/inter": "^5.1.0",
     "@scure/bip39": "^1.4.0",
     "@supabase/supabase-js": "^2.50.0",
+    "emoji-picker-react": "^5.1.4",
     "jsqr": "^1.4.0",
     "libsodium-wrappers-sumo": "0.7.15",
     "qrcode": "^1.5.4",

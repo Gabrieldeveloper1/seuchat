@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../lib/store";
 import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconTrash, IconUser, IconVideo, IconX } from "../icons";
 import { TTL_OPTIONS, type Msg } from "../types";
@@ -6,8 +6,11 @@ import { shortId } from "../lib/util";
 import { imageSendingAllowed } from "../lib/imageFilter";
 import { startRecording, type Recorder } from "../lib/media";
 import { formatPhone } from "../lib/phone";
+import { profileImage } from "../lib/media";
 import Avatar from "./Avatar";
 import Dialog from "./Dialog";
+
+const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 function time(ts: number) {
   return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -27,6 +30,7 @@ function ProfileDialog({ id, onClose }: { id: string; onClose: () => void }) {
       <div>
         <h2>{c.alias}</h2>
         {c.name && c.name !== c.alias && <div className="muted">Se identifica como {c.name}</div>}
+        {c.bio && <p className="profile-bio">{c.bio}</p>}
         {c.phone && <div className="muted">{formatPhone(c.phone)}</div>}
         <div className="mono muted" style={{ marginTop: 6 }}>{c.id}</div>
       </div>
@@ -44,12 +48,45 @@ function GroupDialog({ gid, onClose, toast }: { gid: string; onClose: () => void
   const g = local?.groups.find((x) => x.id === gid);
   const [name, setName] = useState(g?.name ?? "");
   const [sel, setSel] = useState<Set<string>>(new Set(g?.members.filter((m) => m !== userId)));
+  const photoInput = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  async function changePhoto(file?: File) {
+    if (!file) return;
+    setPhotoBusy(true);
+    setPhotoError(null);
+    try {
+      const avatar = await profileImage(file, "avatar");
+      if (avatar.length > 60_000) throw new Error("A imagem ficou grande demais. Escolha uma foto mais simples.");
+      await updateGroup(gid, { avatar });
+    } catch (e) {
+      setPhotoError(e instanceof Error ? e.message : "Falha ao atualizar a foto");
+    } finally {
+      setPhotoBusy(false);
+      if (photoInput.current) photoInput.current.value = "";
+    }
+  }
   if (!g || !local) return null;
   const owner = g.owner === userId;
   const label = (id: string) => (id === userId ? "Você" : local.contacts.find((c) => c.id === id)?.alias ?? shortId(id));
   const pool = local.contacts.filter((c) => !c.blocked && !c.requested);
   return (
     <Dialog title="Grupo" onClose={onClose}>
+      <div className="group-photo-editor">
+        <Avatar name={g.name} seed={g.id} size="xl" src={g.avatar} group />
+        <div className="kv">
+          <b>Foto do grupo</b>
+          {owner ? (
+            <>
+              <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={(e) => void changePhoto(e.target.files?.[0])} />
+              <button className="btn" disabled={photoBusy} onClick={() => photoInput.current?.click()}>{photoBusy ? "Atualizando…" : g.avatar ? "Trocar foto" : "Adicionar foto"}</button>
+              {g.avatar && <button className="btn ghost" disabled={photoBusy} onClick={() => void updateGroup(gid, { avatar: null }).catch((e) => setPhotoError(e instanceof Error ? e.message : "Falha ao remover a foto"))}>Remover foto</button>}
+              {photoError && <div className="error" role="alert">{photoError}</div>}
+            </>
+          ) : <span className="muted small">Só o criador do grupo pode alterar a foto.</span>}
+          <span className="muted small">A foto é compartilhada com os membros do grupo.</span>
+        </div>
+      </div>
       <label className="field">Nome
         <input className="input" value={name} maxLength={40} disabled={!owner} onChange={(e) => setName(e.target.value)} />
       </label>
@@ -115,6 +152,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
   const msgs = all.length > limit ? all.slice(all.length - limit) : all;
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [dlg, setDlg] = useState<"profile" | "group" | "menu" | null>(null);
@@ -124,6 +162,8 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
   const end = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const emojiPicker = useRef<HTMLDivElement>(null);
+  const emojiToggle = useRef<HTMLButtonElement>(null);
   const stick = useRef(true); // só rola para o fim se a pessoa já estava no fim
 
   const lastId = msgs[msgs.length - 1]?.id;
@@ -149,6 +189,15 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [text]);
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const closeOutside = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (!emojiPicker.current?.contains(target) && !emojiToggle.current?.contains(target)) setEmojiOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside, true);
+    return () => document.removeEventListener("pointerdown", closeOutside, true);
+  }, [emojiOpen]);
 
   const onScroll = useCallback(() => {
     const el = box.current;
@@ -165,6 +214,21 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
     try { await f(); } catch (e) { toast(e instanceof Error ? e.message : fail); } finally { setSending(false); }
   }
   const send = () => text.trim() && !sending && void wrap(async () => { stick.current = true; await sendText(peer, text, replyTo ?? undefined); setText(""); setReplyTo(null); ta.current?.focus(); }, "Falha ao enviar");
+  const insertEmoji = (emoji: string) => {
+    const el = ta.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? text.length;
+    const next = `${text.slice(0, start)}${emoji}${text.slice(end)}`;
+    if (next.length > 8000) { toast("Mensagem muito longa"); return; }
+    setText(next);
+    setEmojiOpen(false);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const cursor = start + emoji.length;
+      el.setSelectionRange(cursor, cursor);
+    });
+  };
   const pick = (f?: File) => f && void wrap(async () => { stick.current = true; await sendImage(peer, f); }, "Falha ao enviar imagem").finally(() => { if (file.current) file.current.value = ""; });
 
   async function startRec() {
@@ -187,7 +251,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
       <div className="chat-head">
         <button className="icon-btn back" onClick={onBack} aria-label="Voltar para as conversas"><IconBack /></button>
         <button className="who-btn" onClick={() => setDlg(group ? "group" : "profile")} aria-label={`Abrir ${group ? "grupo" : "perfil"} de ${title}`}>
-          <Avatar name={title} seed={group?.id ?? contact!.id} size="sm" src={contact?.avatar} group={!!group} />
+          <Avatar name={title} seed={group?.id ?? contact!.id} size="sm" src={group?.avatar ?? contact?.avatar} group={!!group} />
           <span className="t"><b>{title}</b><span className="muted small">{subtitle}</span></span>
         </button>
         {contact && !contact.blocked && !contact.requested && (
@@ -274,14 +338,50 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
           <>
             <input ref={file} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={(e) => pick(e.target.files?.[0])} />
             <button className="icon-btn" aria-label="Anexar imagem" disabled={sending || locked || !imageSendingAllowed()} title={imageSendingAllowed() ? "Anexar imagem" : "Envio de imagens desativado"} onClick={() => file.current?.click()}><IconAttach /></button>
+            <button ref={emojiToggle} className="icon-btn emoji-toggle" aria-label="Abrir emojis" aria-pressed={emojiOpen} title="Emojis" disabled={sending || locked} onClick={() => setEmojiOpen((open) => !open)}>😀</button>
             <textarea ref={ta} className="input" rows={1} placeholder="Mensagem" value={text} disabled={locked} enterKeyHint="send" autoComplete="off" onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse()) { e.preventDefault(); send(); } }} />
+              onKeyDown={(e) => { if (e.key === "Escape" && emojiOpen) { setEmojiOpen(false); return; } if (e.key === "Enter" && !e.shiftKey && !coarse()) { e.preventDefault(); send(); } }} />
             {text.trim() ? (
               <button className="btn primary send" aria-label="Enviar" disabled={sending || locked} onClick={send}><IconSend /></button>
             ) : (
               <button className="btn primary send" aria-label="Gravar áudio" disabled={sending || locked} onClick={() => void startRec()}><IconMic /></button>
             )}
           </>
+        )}
+        {emojiOpen && (
+          <div ref={emojiPicker} className="emoji-picker-popover">
+            <Suspense fallback={<div className="emoji-loading">Carregando emojis…</div>}>
+              <EmojiPicker
+                width="100%"
+                height={360}
+                lazyLoadEmojis
+                emojiData={() => import("emoji-picker-react/data/emojis-pt")}
+                labels={{
+                  searchPlaceholder: "Buscar emoji",
+                  searchLabel: "Buscar emoji",
+                  searchClear: "Limpar busca",
+                  searchResultsNone: "Nenhum emoji encontrado",
+                  searchResultsOne: "1 emoji encontrado",
+                  searchResultsMany: "%n emojis encontrados",
+                  categoryNavigation: "Categorias de emoji",
+                  reactions: "Reações",
+                  expandReactions: "Expandir reações",
+                  loading: "Carregando emojis",
+                  loadingError: "Erro ao carregar emojis",
+                  retryLoading: "Tentar novamente",
+                  skinToneNeutral: "Tom de pele padrão",
+                  skinToneLight: "Tom de pele claro",
+                  skinToneMediumLight: "Tom de pele médio-claro",
+                  skinToneMedium: "Tom de pele médio",
+                  skinToneMediumDark: "Tom de pele médio-escuro",
+                  skinToneDark: "Tom de pele escuro",
+                }}
+                previewConfig={{ showPreview: false }}
+                theme={local?.settings.theme === "dark" ? "dark" : local?.settings.theme === "light" ? "light" : "auto"}
+                onEmojiClick={(data) => insertEmoji(data.emoji)}
+              />
+            </Suspense>
+          </div>
         )}
       </div>
       {dlg === "menu" && <ChatMenu peer={peer} onClose={() => setDlg(null)} onProfile={() => setDlg("profile")} onGroup={() => setDlg("group")} />}

@@ -52,7 +52,9 @@ Tudo vem de variáveis no topo de `src/styles/global.css` (`--accent`, `--accent
 - **Chamadas de voz/vídeo e tela:** WebRTC; o SDP viaja dentro das mensagens seladas (fingerprint DTLS autenticado). Exige HTTPS. Configure TURN (`VITE_TURN_*` em `.env.example`) para funcionar em todas as redes; sem TURN, quem está na chamada vê o IP do outro. Compartilhar tela só funciona em navegador de computador (Chrome/Edge/Firefox): navegadores de celular não oferecem essa função. No celular, a chamada oferece câmera frontal/traseira; compartilhar tela no Android exige empacotar com Capacitor e um plugin de MediaProjection.
 - **Grupos:** até 20 membros; cada mensagem é cifrada separadamente para cada membro (fan-out). Só o criador altera nome, membros e autodestruição.
 - **QR code / link de convite:** Novo contato → QR code (gerar e escanear) ou link `#/add?id=...`.
-- **Foto de perfil e banner:** recortados no aparelho, passam pelo filtro de hashes e vão só para contatos aceitos.
+- **Perfil:** nome, bio de até 280 caracteres, foto e banner; a bio e as imagens são compartilhadas apenas com contatos aceitos, e as imagens passam pelo filtro de hashes.
+- **Foto de grupo:** o criador pode definir/remover a imagem do grupo; ela é enviada cifrada aos membros.
+- **Emojis:** seletor com catálogo Unicode completo, pesquisa, categorias e variações de tom de pele.
 
 ## 4. Limites conhecidos (leia antes de publicar)
 - **Grupos:** a lista de membros é mantida por cada aparelho; não há prova criptográfica de quem é o dono além do primeiro convite. Sem confirmação de leitura em grupos. Sem chamadas em grupo.

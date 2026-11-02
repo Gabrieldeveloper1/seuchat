@@ -215,9 +215,10 @@ function PasswordBlock() {
 }
 
 function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: () => void }) {
-  const { userId, local, setCallRelayOnly, setAutolock, setTheme, setProfileName, markBackupDone, lock, deleteAccount } = useApp();
+  const { userId, local, setCallRelayOnly, setAutolock, setTheme, setProfileName, setProfileBio, markBackupDone, lock, deleteAccount } = useApp();
   const [showWords, setShowWords] = useState(false);
   const [name, setName] = useState(local?.profile.name ?? "");
+  const [bio, setBio] = useState(local?.profile.bio ?? "");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const f = blocklistStatus();
@@ -229,6 +230,12 @@ function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: ()
       <div className="kv">
         <span className="muted small">Seu nome</span>
         <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} onBlur={() => setProfileName(name)} />
+      </div>
+      <div className="kv">
+        <span className="muted small">Bio do perfil</span>
+        <textarea className="input bio-input" value={bio} maxLength={280} rows={3} placeholder="Conte um pouco sobre você" onChange={(e) => setBio(e.target.value)} />
+        <span className="muted small">{bio.length}/280 · visível para contatos aceitos</span>
+        <button className="btn" disabled={bio.trim() === (local?.profile.bio ?? "")} onClick={() => setProfileBio(bio)}>Salvar bio</button>
       </div>
       <PhoneBlock />
       <div className="kv">
@@ -350,7 +357,7 @@ export default function Main() {
         search: `${c.alias} ${c.name ?? ""} ${c.phone ?? ""}`,
       })),
       ...(local?.groups ?? []).map((g) => ({
-        key: `g:${g.id}`, group: true, title: g.name, seed: g.id, avatar: undefined as string | undefined, sort: last.get(`g:${g.id}`)?.ts ?? g.addedAt, unread: unread.get(`g:${g.id}`) ?? 0,
+        key: `g:${g.id}`, group: true, title: g.name, seed: g.id, avatar: g.avatar, sort: last.get(`g:${g.id}`)?.ts ?? g.addedAt, unread: unread.get(`g:${g.id}`) ?? 0,
         preview: g.requested ? "Convite de grupo" : prev(last.get(`g:${g.id}`)) ?? `${g.members.length} membros`, search: g.name,
       })),
     ];

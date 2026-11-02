@@ -9,6 +9,9 @@ export function colorFor(seed: string): string {
 export const DEFAULT_AVATAR = "/default-avatar.svg";
 
 export default function Avatar({ name, seed, size = "", src, group = false }: { name: string; seed: string; size?: "sm" | "xl" | ""; src?: string; group?: boolean }) {
+  if (group && src) {
+    return <img className={`avatar ${size}`} src={src} alt="" loading="lazy" decoding="async" />;
+  }
   if (!group) {
     return (
       <img

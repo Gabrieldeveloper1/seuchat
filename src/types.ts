@@ -11,6 +11,7 @@ export interface Contact {
   addedAt: number;
   avatar?: string;
   banner?: string;
+  bio?: string;
   profSent?: boolean; // já enviamos nosso perfil a este contato
 }
 
@@ -22,6 +23,7 @@ export interface Group {
   ttl: number;
   addedAt: number;
   requested?: boolean;
+  avatar?: string;
 }
 
 export interface FrankInfo {
@@ -64,6 +66,7 @@ export interface Settings {
 
 export interface Profile {
   name: string;
+  bio?: string;
   phone?: string;
   phoneVerified?: boolean;
   avatar?: string;
