@@ -21,3 +21,7 @@ verify_jwt = false
 verify_jwt = false
 [functions.turn-credentials]
 verify_jwt = false
+[functions.attachments]
+verify_jwt = false
+[functions.news]
+verify_jwt = false

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../lib/store";
 import { screenShareSupported } from "../lib/callEngine";
+import { loop, sfx } from "../lib/sounds";
 import Avatar, { colorFor } from "./Avatar";
 import {
   IconCamera, IconCast, IconChevronDown, IconFlip, IconHangup, IconMic, IconMicOff, IconPhone, IconPhoneUp, IconScreen,
@@ -18,25 +19,18 @@ function Vid({ stream, muted, className }: { stream: MediaStream | null; muted?:
   return <video ref={r} className={className} autoPlay playsInline muted={muted} />;
 }
 
-function useRing(on: boolean) {
+function useSpeaking(stream: MediaStream | null, enabled: boolean) {
+  const [speaking, setSpeaking] = useState(false);
   useEffect(() => {
-    if (!on) return;
-    let ctx: AudioContext | null = null;
+    if (!enabled || !stream?.getAudioTracks().length) { setSpeaking(false); return; }
+    let ctx: AudioContext;
     try { ctx = new AudioContext(); } catch { return; }
-    const beep = () => {
-      if (!ctx || ctx.state === "closed") return;
-      void ctx.resume().catch(() => {});
-      for (const [t, f] of [[0, 440], [0.25, 523]] as const) {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.frequency.value = f; g.gain.value = 0.06;
-        o.connect(g).connect(ctx.destination);
-        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.2);
-      }
-    };
-    beep();
-    const i = setInterval(beep, 2200);
-    return () => { clearInterval(i); void ctx?.close(); };
-  }, [on]);
+    const source = ctx.createMediaStreamSource(stream); const analyser = ctx.createAnalyser(); analyser.fftSize = 512; source.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
+    const id = setInterval(() => { analyser.getByteTimeDomainData(data); const v = Math.sqrt(data.reduce((n,x) => n + ((x-128)/128)**2, 0) / data.length); setSpeaking(v > 0.045); }, 160);
+    return () => { clearInterval(id); source.disconnect(); void ctx.close(); };
+  }, [stream, enabled]);
+  return speaking;
 }
 
 /** Mantém a tela do celular acesa durante a chamada. */
@@ -61,7 +55,17 @@ export default function CallOverlay() {
   const [sheet, setSheet] = useState<null | "share" | "people" | "confirm">(null);
   const [deaf, setDeaf] = useState(false);
   const [hint, setHint] = useState(false);
-  useRing(call.phase === "incoming");
+  const remoteSpeaking = useSpeaking(call.remote, call.phase === "connected" && !deaf);
+  const selfSpeaking = useSpeaking(call.local, call.phase === "connected" && call.mic);
+  const previousPhase = useRef(call.phase);
+  useEffect(() => {
+    const previous = previousPhase.current;
+    if (call.phase === "connected" && previous !== "connected") sfx.connected();
+    if (call.phase === "idle" && previous !== "idle") sfx.hangup();
+    previousPhase.current = call.phase;
+    if (call.phase === "incoming") return loop("incoming");
+    if (call.phase === "calling") return loop("outgoing");
+  }, [call.phase]);
   useWakeLock(call.phase !== "idle");
 
   useEffect(() => {
@@ -121,7 +125,7 @@ export default function CallOverlay() {
   );
 
   const remoteTile = (
-    <div className="tile">
+    <div className={`tile ${remoteSpeaking ? "speaking" : ""}`}>
       {bg(call.peer ?? "", bgUrl)}
       {call.remoteScreen ? (
         <>
@@ -166,7 +170,7 @@ export default function CallOverlay() {
   });
 
   const meTile = (
-    <div className="tile">
+    <div className={`tile ${selfSpeaking ? "speaking" : ""}`}>
       {bg(userId ?? "me", myAvatar)}
       {camOn && !call.sharing ? (
         <>

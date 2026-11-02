@@ -3,6 +3,7 @@ import { useApp } from "../lib/store";
 import { IconLock, IconPhone, IconZap, Wordmark, IconLoader } from "../icons";
 import Terms from "../components/Terms";
 import PasswordInput from "../components/PasswordInput";
+import { isValidMnemonic } from "../lib/crypto";
 
 export default function Welcome() {
   const { createAccount, restoreAccount, busy, error } = useApp();
@@ -28,6 +29,7 @@ export default function Welcome() {
     setLocalErr(null);
     if (tab === "new" && !name.trim()) return setLocalErr("Como você quer ser chamado?");
     if (tab === "restore" && words.some((w) => !w)) return setLocalErr("Preencha as 12 palavras");
+    if (tab === "restore" && !isValidMnemonic(words.join(" "))) return setLocalErr("Frase inválida. Confira as 12 palavras e a ordem.");
     if (pass.length < 8) return setLocalErr("Use uma senha com pelo menos 8 caracteres");
     if (!ok) return setLocalErr("Confirme que tem 18 anos ou mais e aceita os Termos");
     if (tab === "new") void createAccount(name, pass);
@@ -68,11 +70,11 @@ export default function Welcome() {
               <div className="banner" role="note">Ao criar a conta, o SeuChatSeguro gera um número exclusivo no formato 10259-5251. Não é um telefone e não precisa de SMS.</div>
             </>
           ) : (
-            <div className="words" onPaste={(e) => { const t = e.clipboardData.getData("text"); if (t.trim().split(/\s+/).length > 1) { e.preventDefault(); setWord(0, t); } }}>
+            <div><p className="small muted">Digite as 12 palavras em inglês, na ordem, ou cole a frase completa.</p><button type="button" className="btn sm" onClick={async () => { try { setWord(0, await navigator.clipboard.readText()); } catch { setLocalErr("Não foi possível acessar a área de transferência. Cole a frase em um campo."); } }}>Colar frase</button><div className="words" onPaste={(e) => { const t = e.clipboardData.getData("text"); if (t.trim().split(/\s+/).length > 1) { e.preventDefault(); setWord(0, t); } }}>
               {words.map((w, i) => (
                 <input key={i} value={w} aria-label={`Palavra ${i + 1}`} placeholder={String(i + 1)} autoComplete="off" autoCapitalize="off" spellCheck={false} onChange={(e) => setWord(i, e.target.value)} />
               ))}
-            </div>
+            </div></div>
           )}
 
           <label className="field">{tab === "new" ? "Crie uma senha" : "Nova senha neste aparelho"}

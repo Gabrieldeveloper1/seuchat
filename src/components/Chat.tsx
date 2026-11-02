@@ -1,7 +1,10 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 const EmojiPicker = lazy(() => import("./EmojiPicker"));
-import { useApp } from "../lib/store";
-import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconSmile, IconLoader, IconTrash, IconUser, IconVideo, IconX } from "../icons";
+import { msgLabel, useApp } from "../lib/store";
+import { FileMessage, LiveWave, Ring, VoicePlayer } from "./Media";
+import { sfx } from "../lib/sounds";
+import { MAX_FILE } from "../lib/files";
+import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconSmile, IconLoader, IconTrash, IconFile, IconFilm, IconImage, IconPause, IconUser, IconVideo, IconX } from "../icons";
 import { TTL_OPTIONS, type Msg } from "../types";
 import { shortId } from "../lib/util";
 import { imageSendingAllowed } from "../lib/imageFilter";
@@ -226,7 +229,7 @@ function ChatMenu({ peer, onClose, onProfile, onGroup }: { peer: string; onClose
 
 export default function Chat({ peer, onBack, onReport, toast }: { peer: string; onBack: () => void; onReport: (m: Msg) => void; toast: (t: string) => void }) {
   const app = useApp();
-  const { local, userId, activity, typing, sendActivity, sendText, sendImage, sendAudio, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
+  const { local, userId, activity, typing, sendActivity, sendText, sendImage, sendAudio, sendFile, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
   const isGroup = peer.startsWith("g:");
   const contact = isGroup ? undefined : local?.contacts.find((c) => c.id === peer);
   const group = isGroup ? local?.groups.find((g) => g.id === peer.slice(2)) : undefined;
@@ -246,6 +249,11 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
   const file = useRef<HTMLInputElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [upProg, setUpProg] = useState<{ name: string; p: number } | null>(null);
+  const [recPaused, setRecPaused] = useState(false);
+  const vidIn = useRef<HTMLInputElement>(null);
+  const anyIn = useRef<HTMLInputElement>(null);
   const insertEmoji = useCallback((emoji: string) => {
     const el = ta.current;
     const start = el?.selectionStart ?? null;
@@ -298,7 +306,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
   }, [peer, markRead]);
   useEffect(() => {
     if (recSec === null) return;
-    const i = setInterval(() => setRecSec((s) => (s === null ? s : s + 1)), 1000);
+    const i = setInterval(() => setRecSec((s) => (s === null || rec.current?.paused ? s : s + 1)), 1000);
     return () => clearInterval(i);
   }, [recSec === null]);
   useEffect(() => () => rec.current?.cancel(), [peer]);
@@ -338,23 +346,42 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
     const selected = mentions.filter((id) => draft.includes(`@${nameOf(id)}`));
     stick.current = true;
     setText(""); setMentions([]); setReplyTo(null); ta.current?.focus();
+    sfx.send();
     void sendText(peer, draft, reply, selected).catch((e) => {
+      sfx.error();
       setText((current) => current || draft);
       toast(e instanceof Error ? e.message : "Falha ao enviar");
     });
   };
-  const pick = (f?: File) => f && void wrap(async () => { stick.current = true; await sendImage(peer, f); }, "Falha ao enviar imagem").finally(() => { if (file.current) file.current.value = ""; });
+  const pick = (f?: File) => f && void wrap(async () => { stick.current = true; await sendImage(peer, f); sfx.send(); }, "Falha ao enviar imagem").finally(() => { if (file.current) file.current.value = ""; });
+  const pickFile = (f?: File) => {
+    if (!f) return;
+    if (f.type.startsWith("image/") && !f.type.includes("svg")) return pick(f);
+    if (f.size > MAX_FILE - 64) { sfx.error(); toast("Arquivo grande demais (máximo 25 MB)."); return; }
+    void wrap(async () => {
+      stick.current = true;
+      setUpProg({ name: f.name, p: 0 });
+      try { await sendFile(peer, f, (p) => setUpProg({ name: f.name, p })); sfx.send(); } finally { setUpProg(null); }
+    }, "Falha ao enviar arquivo").finally(() => { if (vidIn.current) vidIn.current.value = ""; if (anyIn.current) anyIn.current.value = ""; });
+  };
 
   async function startRec() {
-    try { rec.current = await startRecording(() => void finishRec(true)); setRecSec(0); } catch (e) { toast(e instanceof Error ? e.message : "Falha ao gravar"); }
+    try { rec.current = await startRecording(() => void finishRec(true)); setRecSec(0); setRecPaused(false); sfx.recStart(); } catch (e) { sfx.error(); toast(e instanceof Error ? e.message : "Falha ao gravar"); }
   }
   async function finishRec(send: boolean) {
     const r = rec.current;
     rec.current = null;
     setRecSec(null);
     if (!r) return;
-    if (!send) return r.cancel();
-    await wrap(async () => { const a = await r.stop(); if (a.dur >= 1) { stick.current = true; await sendAudio(peer, a.dataUrl, a.dur); } }, "Falha ao enviar áudio");
+    if (!send) { sfx.recStop(); return r.cancel(); }
+    await wrap(async () => {
+      const a = await r.stop();
+      if (a.dur < 1) return;
+      stick.current = true;
+      const big = a.dur > 60;
+      if (big) setUpProg({ name: "Mensagem de voz", p: 0 });
+      try { await sendAudio(peer, a, (p) => setUpProg({ name: "Mensagem de voz", p })); sfx.send(); } finally { if (big) setUpProg(null); }
+    }, "Falha ao enviar áudio");
   }
   const call = (v: boolean) => (group ? startGroupCall(group.id, v) : startCall(peer, v)).catch((e) => toast(e instanceof Error ? e.message : "Falha na chamada"));
   const toggleSel = (id: string) => { if (window.getSelection()?.toString()) return; setSel((cur) => (cur === id ? null : id)); };
@@ -425,7 +452,8 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
               {m.mentions?.includes(userId ?? "") && <div className="mention-notice">Mencionou você</div>}
               {m.reply && <div className="quote">{m.reply.text}</div>}
               {m.image && <img src={m.image} alt="Imagem recebida" loading="lazy" decoding="async" />}
-              {m.audio && <div className="audio" onClick={(e) => e.stopPropagation()}><audio controls preload="metadata" src={m.audio} />{m.dur ? <span className="small">{m.dur}s</span> : null}</div>}
+              {m.audio && <VoicePlayer src={m.audio} dur={m.dur} wave={m.wave} out={m.dir === "out"} />}
+              {m.file && (m.file.voice ? <VoicePlayer fileRef={m.file} dur={m.file.dur} wave={m.wave} out={m.dir === "out"} /> : <FileMessage f={m.file} out={m.dir === "out"} />)}
               {m.text}
               <div className="foot">
                 {m.ttl > 0 && <IconClock aria-label="Mensagem temporária" />}
@@ -452,7 +480,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
       {replyTo && (
         <div className="replybar">
           <IconReply />
-          <span>{replyTo.text ?? (replyTo.kind === "audio" ? "Áudio" : "Imagem")}</span>
+          <span>{replyTo.text ?? msgLabel(replyTo)}</span>
           <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="Cancelar resposta" onClick={() => setReplyTo(null)}><IconX /></button>
         </div>
       )}
@@ -471,18 +499,37 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
           ))}
         </div>
       )}
+      {upProg && (
+        <div className="upload-bar" role="status"><Ring p={upProg.p} /><span>Enviando <b>{upProg.name}</b> com criptografia…</span><em>{Math.round(upProg.p * 100)}%</em></div>
+      )}
       {emojiOpen && <Suspense fallback={<div className="emoji-pop emoji-loading"><IconLoader className="spin" /> Carregando emojis…</div>}><EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} /></Suspense>}
       <div className="composer">
         {recSec !== null ? (
           <>
-            <button className="icon-btn" aria-label="Cancelar gravação" onClick={() => void finishRec(false)}><IconTrash /></button>
-            <div className="rec"><i /> Gravando {Math.floor(recSec / 60)}:{String(recSec % 60).padStart(2, "0")}</div>
+            <button className="icon-btn rec-x" aria-label="Cancelar gravação" onClick={() => void finishRec(false)}><IconTrash /></button>
+            <div className={`rec ${recPaused ? "paused" : ""}`}>
+              <i />
+              <span className="rec-t">{Math.floor(recSec / 60)}:{String(recSec % 60).padStart(2, "0")}</span>
+              {rec.current && <LiveWave level={rec.current.level} />}
+            </div>
+            <button className="icon-btn" aria-label={recPaused ? "Continuar gravação" : "Pausar gravação"} onClick={() => { const r = rec.current; if (!r) return; if (r.paused) r.resume(); else r.pause(); setRecPaused(r.paused); }}>{recPaused ? <IconMic /> : <IconPause />}</button>
             <button className="btn primary send" aria-label="Enviar áudio" disabled={sending} onClick={() => void finishRec(true)}><IconSend /></button>
           </>
         ) : (
           <>
             <input ref={file} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={(e) => pick(e.target.files?.[0])} />
-            <button className="icon-btn" aria-label="Anexar imagem" disabled={sending || locked || !imageSendingAllowed()} title={imageSendingAllowed() ? "Anexar imagem" : "Envio de imagens desativado"} onClick={() => file.current?.click()}><IconAttach /></button>
+            <input ref={vidIn} type="file" accept="video/mp4,video/webm,video/quicktime" hidden onChange={(e) => pickFile(e.target.files?.[0])} />
+            <input ref={anyIn} type="file" hidden onChange={(e) => pickFile(e.target.files?.[0])} />
+            <div className="attach-wrap">
+              <button className={`icon-btn ${attachOpen ? "on" : ""}`} aria-label="Anexar" aria-expanded={attachOpen} disabled={sending || locked} onClick={() => setAttachOpen((v) => !v)}><IconAttach /></button>
+              {attachOpen && (
+                <div className="attach-menu" role="menu" onMouseLeave={() => setAttachOpen(false)}>
+                  <button role="menuitem" disabled={!imageSendingAllowed()} onClick={() => { setAttachOpen(false); file.current?.click(); }}><span className="am-ico a"><IconImage /></span><span><b>Foto</b><small>{imageSendingAllowed() ? "JPG, PNG, WebP" : "Indisponível no momento"}</small></span></button>
+                  <button role="menuitem" disabled={!imageSendingAllowed()} onClick={() => { setAttachOpen(false); vidIn.current?.click(); }}><span className="am-ico b"><IconFilm /></span><span><b>Vídeo</b><small>{imageSendingAllowed() ? "Até 25 MB" : "Indisponível no momento"}</small></span></button>
+                  <button role="menuitem" onClick={() => { setAttachOpen(false); anyIn.current?.click(); }}><span className="am-ico c"><IconFile /></span><span><b>Arquivo</b><small>PDF, documentos e outros · até 25 MB</small></span></button>
+                </div>
+              )}
+            </div>
             <button className={`icon-btn emoji-toggle ${emojiOpen ? "on" : ""}`} data-emoji-toggle aria-label="Emojis" aria-expanded={emojiOpen} disabled={locked} onClick={() => setEmojiOpen((v) => !v)}><IconSmile /></button>
             <textarea ref={ta} className="input" rows={1} placeholder="Mensagem" value={text} disabled={locked} enterKeyHint="send" autoComplete="off" onChange={(e) => { const value = e.target.value; setText(value); if (value.trim() && Date.now() - lastTypingSent.current > 4000) { lastTypingSent.current = Date.now(); sendActivity(peer, "typing"); } }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse()) { e.preventDefault(); send(); } }} />

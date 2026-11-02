@@ -1,15 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import sodium from "libsodium-wrappers-sumo";
-import type { Contact, Group, GroupAuditEntry, GroupRole, LocalState, Msg } from "../types";
+import type { Contact, FileRef, Group, GroupAuditEntry, GroupRole, LocalState, Msg } from "../types";
 import { CallEngine, IDLE, type CallState } from "./callEngine";
 import { ID_RE, dec, enc, fromB64, hexToBytes, toB64 } from "./util";
 import { isValidMnemonic, keysFromMnemonic, newMnemonic, normalizeMnemonic, type Keys } from "./crypto";
 import { normalizeAppNumber } from "./phone";
 import { createVault, openVault, saveVault, vaultExists, wipeVault, type VaultHandle } from "./vault";
 import { startSession, fetchIdentity, type RelayRow, type Session } from "./session";
-import { ApiError, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers } from "./api";
+import { ApiError, getNews, type NewsItem, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers } from "./api";
 import { buildReport, frankMessage, verifyIncoming, type ReportPayload } from "./franking";
-import { dataUrlIsBlocked, loadBlocklist, prepareImage } from "./imageFilter";
+import { dataUrlIsBlocked, imageSendingAllowed, loadBlocklist, prepareImage } from "./imageFilter";
+import { MAX_FILE, downloadDecrypted, uploadEncrypted, videoFramesBlocked, videoInfo } from "./files";
+
+export function msgLabel(m: Pick<Msg, "kind" | "file">): string {
+  if (m.kind === "audio") return "Mensagem de voz";
+  if (m.kind === "image") return "Imagem";
+  if (m.kind === "file" && m.file) return m.file.voice ? "Mensagem de voz" : m.file.mime.startsWith("video/") ? "Vídeo" : `Arquivo: ${m.file.name}`;
+  return "Mensagem";
+}
 
 export type Phase = "boot" | "welcome" | "locked" | "app";
 
@@ -50,7 +58,10 @@ interface Ctx {
   report(msg: Msg, category: ReportPayload["category"]): Promise<void>;
   setAutolock(min: number): void;
   deleteAccount(): Promise<void>;
-  sendAudio(peer: string, dataUrl: string, dur: number): Promise<void>;
+  sendAudio(peer: string, rec: { dataUrl: string; blob: Blob; mime: string; dur: number; wave: number[] }, onProgress?: (p: number) => void): Promise<void>;
+  sendFile(peer: string, file: File, onProgress?: (p: number) => void): Promise<void>;
+  downloadFile(f: FileRef, onProgress?: (p: number) => void): Promise<string>;
+  fetchNews(cat: string): Promise<{ items: NewsItem[]; updatedAt: number }>;
   setProfileImages(avatar?: string | null, banner?: string | null): void;
   createGroup(name: string, members: string[]): Promise<string>;
   updateGroup(gid: string, patch: Partial<Pick<Group, "name" | "members" | "ttl" | "description" | "avatar" | "banner" | "roles" | "memberRoles" | "autoRole">>): Promise<void>;
@@ -203,7 +214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!ok) throw new Error("franking");
 
         const p = JSON.parse(env.payload) as {
-          t: string; op?: string; id?: string; kind?: string; text?: string; image?: string; audio?: string; dur?: number; ttl?: number; ts?: number; ids?: string[];
+          t: string; op?: string; id?: string; kind?: string; text?: string; image?: string; audio?: string; dur?: number; wave?: unknown[]; file?: unknown; ttl?: number; ts?: number; ids?: string[];
           n?: string; an?: string; rt?: { id?: string; text?: string }; gid?: string; name?: string; members?: string[]; av?: string; bn?: string;
           description?: string; roles?: GroupRole[]; memberRoles?: Record<string, string>; autoRole?: string;
           audit?: GroupAuditEntry[]; auditAllowed?: boolean; mentions?: string[];
@@ -336,7 +347,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (localRef.current!.messages.some((m) => m.id === p.id && m.peer === thread && (m.from ?? m.peer) === row.sender_id)) throw new Error("duplicada");
           const ttl = TTLS.has(p.ttl ?? 0) ? (p.ttl ?? 0) : 0;
           const msg: Msg = {
-            id: p.id, peer: thread, from: row.sender_id, dir: "in", kind: p.kind === "image" ? "image" : p.kind === "audio" ? "audio" : "text",
+            id: p.id, peer: thread, from: row.sender_id, dir: "in", kind: p.kind === "image" ? "image" : p.kind === "audio" ? "audio" : p.kind === "file" ? "file" : "text",
             ts: row.sent_at, ttl,
             frank: { key: env.k, tag: toB64(tag), sig: toB64(sig), mac: toB64(hexToBytes(row.server_mac)), sentAt: row.sent_at, payload: env.payload },
           };
@@ -347,6 +358,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (typeof p.audio !== "string" || !/^data:audio\/(webm|ogg|mp4);base64,/.test(p.audio) || p.audio.length > 200_000) throw new Error("áudio");
             msg.audio = p.audio;
             msg.dur = Math.max(0, Math.min(60, Number(p.dur) || 0));
+            if (Array.isArray(p.wave)) msg.wave = p.wave.slice(0, 64).map((x: unknown) => Math.max(0, Math.min(31, Math.round(Number(x) || 0))));
+          } else if (msg.kind === "file") {
+            const f = p.file as Record<string, unknown> | undefined;
+            const str = (v: unknown, max: number) => typeof v === "string" && v.length > 0 && v.length <= max;
+            if (!f || !str(f.id, 40) || !/^[0-9a-f-]{36}$/.test(f.id as string) || !str(f.key, 64) || !str(f.nonce, 64) || !str(f.hash, 64)
+              || !str(f.name, 200) || !str(f.mime, 100) || typeof f.size !== "number" || f.size <= 0 || f.size > 26_214_400) throw new Error("arquivo");
+            if (f.thumb !== undefined && (!str(f.thumb, 60_000) || !(f.thumb as string).startsWith("data:image/jpeg;base64,"))) throw new Error("capa");
+            if (typeof f.thumb === "string" && (await dataUrlIsBlocked(f.thumb))) { setNotice("Um vídeo recebido foi bloqueado pelo filtro de segurança e descartado."); throw new Error("hash"); }
+            msg.file = {
+              id: f.id as string, key: f.key as string, nonce: f.nonce as string, hash: f.hash as string,
+              name: (f.name as string).replace(/[\u0000-\u001f\u202e/\\]/g, "_"), mime: (f.mime as string).toLowerCase(), size: f.size,
+              thumb: f.thumb as string | undefined, dur: Math.max(0, Math.min(36000, Number(f.dur) || 0)) || undefined,
+              w: Number(f.w) || undefined, h: Number(f.h) || undefined, voice: f.voice === true,
+            };
+            if (typeof p.text === "string") msg.text = p.text.slice(0, 1000);
           } else {
             if (typeof p.image !== "string" || !p.image.startsWith("data:image/jpeg;base64,") || p.image.length > 300_000) throw new Error("imagem");
             if (await dataUrlIsBlocked(p.image)) {
@@ -715,7 +741,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const sendBody = useCallback(
-    async (peer: string, kind: "text" | "image" | "audio", text: string | undefined, image: string | undefined, reply?: Msg, audio?: string, dur?: number, mentions?: string[]) => {
+    async (peer: string, kind: "text" | "image" | "audio" | "file", text: string | undefined, image: string | undefined, reply?: Msg, audio?: string, dur?: number, mentions?: string[], extra?: { file?: FileRef; wave?: number[] }) => {
       const me = keysRef.current!.userId;
       const isGroup = peer.startsWith("g:");
       const contact = isGroup ? undefined : localRef.current?.contacts.find((c) => c.id === peer);
@@ -733,9 +759,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const validMentions = group ? [...new Set((mentions ?? []).filter((id) => group.members.includes(id)))].slice(0, 20) : [];
       const id = crypto.randomUUID();
       const ts = Date.now();
-      const rt = reply ? { id: reply.id, text: (reply.text ?? (reply.kind === "audio" ? "Áudio" : "Imagem")).slice(0, 120) } : undefined;
-      const payload = JSON.stringify({ t: group ? "gmsg" : "msg", gid: group?.id, id, kind, text, image, audio, dur, ttl, ts, n: localRef.current?.profile.name || undefined, rt, mentions: validMentions });
-      const m: Msg = { id, peer, from: me, dir: "out", kind, text, image, audio, dur, ts, ttl, reply: rt, mentions: validMentions, pending: true };
+      const rt = reply ? { id: reply.id, text: (reply.text ?? msgLabel(reply)).slice(0, 120) } : undefined;
+      const payload = JSON.stringify({ t: group ? "gmsg" : "msg", gid: group?.id, id, kind, text, image, audio, dur, wave: extra?.wave, file: extra?.file, ttl, ts, n: localRef.current?.profile.name || undefined, rt, mentions: validMentions });
+      const m: Msg = { id, peer, from: me, dir: "out", kind, text, image, audio, dur, wave: extra?.wave, file: extra?.file, ts, ttl, reply: rt, mentions: validMentions, pending: true };
       // Mostra a mensagem imediatamente; a criptografia e o relay seguem em segundo plano.
       update((s) => ({ ...s, messages: [...s.messages, m] }));
       try {
@@ -755,13 +781,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [transmit, update, sendProfile],
   );
 
+  const uploadFile = useCallback(async (data: Uint8Array, onProgress?: (p: number) => void) => {
+    const sess = sessRef.current;
+    if (!sess) throw new Error("Sem conexão com o servidor");
+    try { return await uploadEncrypted(sess.getJwt(), data, onProgress); }
+    catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+      await sess.refresh();
+      return uploadEncrypted(sess.getJwt(), data, onProgress);
+    }
+  }, []);
+
   const sendAudio = useCallback(
-    async (peer: string, dataUrl: string, dur: number) => {
-      if (dataUrl.length > 200_000) throw new Error("Áudio grande demais");
-      await sendBody(peer, "audio", undefined, undefined, undefined, dataUrl, dur);
+    async (peer: string, rec: { dataUrl: string; blob: Blob; mime: string; dur: number; wave: number[] }, onProgress?: (p: number) => void) => {
+      if (rec.dur <= 60 && rec.dataUrl.length <= 200_000) {
+        await sendBody(peer, "audio", undefined, undefined, undefined, rec.dataUrl, rec.dur, undefined, { wave: rec.wave });
+        return;
+      }
+      const up = await uploadFile(new Uint8Array(await rec.blob.arrayBuffer()), onProgress);
+      const file: FileRef = { ...up, name: "mensagem-de-voz.webm", mime: rec.mime, size: rec.blob.size, dur: rec.dur, voice: true };
+      await sendBody(peer, "file", undefined, undefined, undefined, undefined, undefined, undefined, { file, wave: rec.wave });
     },
-    [sendBody],
+    [sendBody, uploadFile],
   );
+
+  const sendFile = useCallback(
+    async (peer: string, f: File, onProgress?: (p: number) => void) => {
+      if (f.size > MAX_FILE - 64) throw new Error("Arquivo grande demais (máximo 25 MB).");
+      const mime = (f.type || "application/octet-stream").toLowerCase();
+      if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp|bmp|heic|avif)$/i.test(f.name)) throw new Error("Envie imagens pela opção Foto.");
+      const isVideo = mime.startsWith("video/");
+      if (!isVideo && /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(f.name)) throw new Error("Selecione um vídeo em formato compatível pela opção Vídeo.");
+      let info: { thumb?: string; dur?: number; w?: number; h?: number } = {};
+      if (isVideo) {
+        if (!imageSendingAllowed()) throw new Error("Envio de vídeos indisponível: a lista de segurança não foi configurada.");
+        if (await videoFramesBlocked(f)) throw new Error("Este arquivo viola as regras da plataforma e não pode ser enviado.");
+        info = await videoInfo(f).catch(() => ({}));
+      }
+      const up = await uploadFile(new Uint8Array(await f.arrayBuffer()), onProgress);
+      const file: FileRef = { ...up, name: f.name.slice(0, 200) || "arquivo", mime, size: f.size, ...info };
+      await sendBody(peer, "file", undefined, undefined, undefined, undefined, undefined, undefined, { file });
+    },
+    [sendBody, uploadFile],
+  );
+
+  const fetchNews = useCallback(async (cat: string) => {
+    const sess = sessRef.current;
+    if (!sess) throw new Error("Sem conexão com o servidor");
+    try { return await getNews(sess.getJwt(), cat); }
+    catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+      await sess.refresh();
+      return getNews(sess.getJwt(), cat);
+    }
+  }, []);
+
+  const downloadFile = useCallback(async (f: FileRef, onProgress?: (p: number) => void) => {
+    const sess = sessRef.current;
+    if (!sess) throw new Error("Sem conexão com o servidor");
+    try { return await downloadDecrypted(sess.getJwt(), f, onProgress); }
+    catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+      await sess.refresh();
+      return downloadDecrypted(sess.getJwt(), f, onProgress);
+    }
+  }, []);
 
   const setProfileImages = useCallback(
     (avatar?: string | null, banner?: string | null) => {
@@ -1023,12 +1107,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl,
       sendText, sendImage, markRead, report, setAutolock, deleteAccount,
-      sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
+      sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
     [phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
-      sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
+      sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
   );
 

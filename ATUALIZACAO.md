@@ -26,3 +26,13 @@
 - **Botões novos:** dourado com brilho ao passar o mouse, variações compactas, de perigo e discretas.
 
 Nada no banco de dados ou nas Edge Functions precisa ser alterado por esta atualização.
+
+
+## Versão em andamento: mídias, Hoje e Música
+
+- Menu sem nome repetido: logo no rail de desktop e no cabeçalho no celular.
+- Interface de anexos e gravação, player de voz com velocidade, efeitos sonoros com opção de desligar, e sons e indicador de voz em chamadas.
+- Páginas Hoje (Open-Meteo e notícias) e Música (Audius e prévias iTunes), mais miniplayer. Aviso de Caps Lock, dicas de senha e validação/colagem da frase de recuperação.
+- Configuração necessária: executar `006_attachments.sql` e publicar `attachments` e `news`; ver README para restrições de segurança e privacidade.
+- Compilação e 13 testes unitários passaram. A navegação das páginas foi conferida em prévia local no desktop e celular com conta fictícia; anexos, chamadas e notícias não foram testados ponta a ponta em servidor real.
+- Pendente: vídeo de apresentação, cadastro em etapas, restauração pela tela bloqueada e revisão abrangente da segurança.

@@ -120,3 +120,28 @@ export const IconFileText = make(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2
 export const IconChevronRight = make(<path d="m9 18 6-6-6-6" />);
 export const IconDevice = make(<><rect x="5" y="2" width="14" height="20" rx="2.5" /><path d="M12 18h.01" /></>);
 export const IconSun = make(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></>);
+// ---- mídia, notícias e música ----
+export const IconPause = make(<><rect x="6" y="4" width="4" height="16" rx="1.2" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1.2" fill="currentColor" stroke="none" /></>);
+export const IconFile = make(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></>);
+export const IconFilm = make(<><rect x="2" y="2" width="20" height="20" rx="2.5" /><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 17h5M17 7h5" /></>);
+export const IconDownload = make(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5M12 15V3" /></>);
+export const IconNews = make(<><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" /><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z" /></>);
+export const IconMusic = make(<><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></>);
+export const IconCloud = make(<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" />);
+export const IconCloudRain = make(<><path d="M16 13v8M8 13v8M12 15v8" /><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25" /></>);
+export const IconCloudSnow = make(<><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" /><path d="M8 16h.01M8 20h.01M12 18h.01M12 22h.01M16 16h.01M16 20h.01" /></>);
+export const IconStorm = make(<><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9" /><path d="m13 11-4 6h6l-4 6" /></>);
+export const IconFog = make(<path d="M4 14h16M4 18h12M6 10h14M8 6h10" />);
+export const IconWind = make(<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2" />);
+export const IconDrop = make(<path d="M12 2.69 17.66 8.35a8 8 0 1 1-11.31 0z" />);
+export const IconPin = make(<><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></>);
+export const IconRefresh = make(<><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" /><path d="M21 3v5h-5" /></>);
+export const IconSkipNext = make(<><path d="m5 4 10 8-10 8z" fill="currentColor" /><path d="M19 5v14" /></>);
+export const IconSkipPrev = make(<><path d="m19 20-10-8 10-8z" fill="currentColor" /><path d="M5 19V5" /></>);
+export const IconExternal = make(<><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6M10 14 21 3" /></>);
+export const IconGlobe = make(<><circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></>);
+export const IconAlert = make(<><path d="m10.29 3.86-8.47 14.14A2 2 0 0 0 3.53 21h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4M12 17h.01" /></>);
+export const IconCapsLock = make(<><path d="m12 4-8 8h4v4h8v-4h4z" /><path d="M8 20h8" /></>);
+export const IconArrowRight = make(<path d="M5 12h14M13 5l7 7-7 7" />);
+export const IconClipboard = make(<><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /></>);
+export const IconVolumeLow = make(<><path d="M11 5 6 9H2v6h4l5 4z" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></>);

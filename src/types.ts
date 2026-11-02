@@ -56,15 +56,32 @@ export interface FrankInfo {
   payload: string;
 }
 
+export interface FileRef {
+  id: string; // anexo cifrado no servidor
+  key: string; // chave XChaCha20 (só viaja dentro da mensagem cifrada)
+  nonce: string;
+  hash: string; // SHA-256 dos bytes cifrados
+  name: string;
+  mime: string;
+  size: number;
+  thumb?: string; // capa JPEG pequena (vídeos)
+  dur?: number;
+  w?: number;
+  h?: number;
+  voice?: boolean; // mensagem de voz longa
+}
+
 export interface Msg {
   id: string;
   peer: string;
   dir: "in" | "out";
-  kind: "text" | "image" | "audio";
+  kind: "text" | "image" | "audio" | "file";
   text?: string;
   image?: string; // data:image/jpeg;base64,...
   audio?: string; // data:audio/...;base64,...
   dur?: number; // segundos
+  wave?: number[]; // forma de onda do áudio (0–31)
+  file?: FileRef;
   from?: string; // remetente (em grupos)
   ts: number;
   ttl: number;

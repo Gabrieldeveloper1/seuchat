@@ -143,3 +143,17 @@ export async function getTurnIceServers(jwt: string): Promise<RTCIceServer[]> {
   }
   return result.iceServers;
 }
+
+export interface UploadTicket { id: string; path: string; token: string; signedUrl: string }
+export async function requestUpload(jwt: string, size: number): Promise<UploadTicket> {
+  return call("attachments", { op: "upload", size }, { jwt, retries: 1, timeoutMs: 20_000 });
+}
+export async function requestDownload(jwt: string, id: string): Promise<string> {
+  const r = await call<{ url: string }>("attachments", { op: "download", id }, { jwt, retries: 2, timeoutMs: 15_000 });
+  return r.url;
+}
+
+export interface NewsItem { title: string; link: string; source: string; date: number; summary?: string; image?: string }
+export async function getNews(jwt: string, cat: string): Promise<{ items: NewsItem[]; updatedAt: number }> {
+  return call("news", { cat }, { jwt, retries: 1, timeoutMs: 20_000 });
+}

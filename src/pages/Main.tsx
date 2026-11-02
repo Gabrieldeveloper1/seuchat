@@ -1,9 +1,12 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useApp } from "../lib/store";
+import { msgLabel, useApp } from "../lib/store";
+import Today from "./Today";
+import Music, { MiniPlayer } from "./Music";
+import { sfx, soundEnabled, setSoundEnabled } from "../lib/sounds";
 import Chat from "../components/Chat";
 import Dialog from "../components/Dialog";
 import Terms from "../components/Terms";
-import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconHash, IconImage, IconInfo, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo, Wordmark } from "../icons";
+import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconHash, IconImage, IconInfo, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconMusic, IconNews, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo } from "../icons";
 const QrDialog = lazy(() => import("../components/QrDialog"));
 import { profileImage } from "../lib/media";
 import { turnConfigured } from "../lib/callEngine";
@@ -202,6 +205,7 @@ function SetRow({ icon, title, desc, children }: { icon: React.ReactNode; title:
 function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () => void; onTerms: () => void; initial?: Sec }) {
   const { userId, local, setCallRelayOnly, setAutolock, setTheme, setProfileName, markBackupDone, lock, deleteAccount } = useApp();
   const [sec, setSec] = useState<Sec>(initial);
+  const [sounds, setSounds] = useState(soundEnabled);
   const [showWords, setShowWords] = useState(false);
   const [name, setName] = useState(local?.profile.name ?? "");
   const [confirm, setConfirm] = useState("");
@@ -260,6 +264,7 @@ function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () 
                 </SetRow>
               </div>
               <div className="set-group">
+                <SetRow icon={<IconBell />} title="Efeitos sonoros" desc="Sons de mensagens e chamadas neste aparelho"><label className="switch"><input type="checkbox" checked={sounds} onChange={(e) => { setSoundEnabled(e.target.checked); setSounds(e.target.checked); if (e.target.checked) sfx.tap(); }} /><i /></label></SetRow>
                 <SetRow icon={<IconBell />} title="Status e digitação" desc="Seus contatos veem quando você está online ou digitando, de forma aproximada." />
                 <SetRow icon={<IconImage />} title="Imagens" desc="Fotos passam por verificação de segurança antes do envio." />
               </div>
@@ -307,7 +312,7 @@ function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () 
               </div>
             </>
           )}
-          <div className="set-ver"><Logo size={22} /> SeuChatSeguro · <IconInfo /> versão Black</div>
+          <div className="set-ver"><IconInfo /> versão Black</div>
         </div>
       </div>
     </Dialog>
@@ -324,6 +329,7 @@ type Filter = "all" | "contacts" | "groups";
 export default function Main() {
   const { local, online, notice, clearNotice, reconnect, userId, addContact, call } = useApp();
   const [active, setActive] = useState<string | null>(hashKey);
+  const [pane, setPane] = useState<"today" | "music" | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [dlg, setDlg] = useState<"add" | "settings" | "terms" | "group" | "qr" | null>(null);
   const [setSecInit, setSetSecInit] = useState<Sec>("perfil");
@@ -348,6 +354,7 @@ export default function Main() {
     return () => { window.removeEventListener("hashchange", sync); window.removeEventListener("popstate", sync); };
   }, []);
   const openChat = useCallback((k: string) => {
+    setPane(null);
     const url = `#/c/${encodeURIComponent(k)}`;
     if (hashKey()) history.replaceState(null, "", url); // trocar de conversa não empilha histórico
     else { pushed.current = true; location.hash = url; }
@@ -376,7 +383,7 @@ export default function Main() {
       if (!l || m.ts > l.ts) last.set(m.peer, m);
       if (m.dir === "in" && !m.readAt) unread.set(m.peer, (unread.get(m.peer) ?? 0) + 1);
     }
-    const prev = (m?: Msg) => (m ? (m.kind === "image" ? "Imagem" : m.kind === "audio" ? "Áudio" : m.text) : undefined);
+    const prev = (m?: Msg) => (m ? (m.kind === "text" ? m.text : msgLabel(m)) : undefined);
     const items = [
       ...(local?.contacts ?? []).map((c) => ({
         key: c.id, group: false, title: c.alias, seed: c.id, avatar: c.avatar, sort: last.get(c.id)?.ts ?? c.addedAt, unread: unread.get(c.id) ?? 0,
@@ -396,6 +403,14 @@ export default function Main() {
     return () => { document.title = "SeuChatSeguro"; };
   }, [totalUnread]);
 
+  const seenMessages = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!local) return;
+    const ids = new Set(local.messages.map((m) => m.id));
+    if (seenMessages.current && local.messages.some((m) => m.dir === "in" && !seenMessages.current!.has(m.id))) sfx.receive();
+    seenMessages.current = ids;
+  }, [local?.messages]);
+
   const term = q.trim().toLowerCase();
   const shown = threads.filter((t) => (filter === "all" || (filter === "groups") === t.group) && (!term || t.search.toLowerCase().includes(term)));
   const activeKey = active && threads.some((t) => t.key === active) ? active : null; // URL antiga/inexistente não deixa tela em branco
@@ -403,14 +418,16 @@ export default function Main() {
   const filters: { v: Filter; t: string }[] = [{ v: "all", t: "Conversas" }, { v: "contacts", t: "Contatos" }, { v: "groups", t: "Grupos" }];
 
   return (
-    <div className={`app ${activeKey ? "chat-open" : ""}`}>
+    <div className={`app ${activeKey || pane ? "chat-open" : ""}`}>
       <nav className="rail" aria-label="Menu">
         <span className="rail-logo"><Logo size={40} /></span>
         {([["all", "Conversas", IconChat], ["contacts", "Contatos", IconUser], ["groups", "Grupos", IconUsers]] as const).map(([v, t, I]) => (
-          <button key={v} className={`rail-btn ${filter === v ? "on" : ""}`} onClick={() => setFilter(v)} title={t} aria-label={t} aria-current={filter === v ? "page" : undefined}>
+          <button key={v} className={`rail-btn ${!pane && filter === v ? "on" : ""}`} onClick={() => { setPane(null); setFilter(v); }} title={t} aria-label={t} aria-current={!pane && filter === v ? "page" : undefined}>
             <I />{v === "all" && totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}<span className="rail-tip">{t}</span>
           </button>
         ))}
+        <button className={`rail-btn ${pane === "today" ? "on" : ""}`} onClick={() => setPane("today")} aria-label="Hoje"><IconNews /><span className="rail-tip">Hoje</span></button>
+        <button className={`rail-btn ${pane === "music" ? "on" : ""}`} onClick={() => setPane("music")} aria-label="Música"><IconMusic /><span className="rail-tip">Música</span></button>
         <button className="rail-btn" onClick={() => setDlg("qr")} title="QR code" aria-label="QR code"><IconQr /><span className="rail-tip">QR code</span></button>
         <span className="rail-space" />
         <button className="rail-btn" onClick={() => openSettings("aparencia")} title="Aparência" aria-label="Aparência"><IconPalette /><span className="rail-tip">Aparência</span></button>
@@ -419,7 +436,7 @@ export default function Main() {
       </nav>
       <aside className="side">
         <div className="side-head">
-          <h2 className="side-brand"><Wordmark /></h2>
+          <h2 className="side-brand"><span className="side-mobile-logo"><Logo size={34} /></span><span className="side-desktop-title">Conversas</span></h2>
           <span>
             <button className="icon-btn" aria-label="QR code" title="QR code" onClick={() => setDlg("qr")}><IconQr /></button>
             <button className="icon-btn" aria-label="Novo grupo" title="Novo grupo" onClick={() => setDlg("group")}><IconUsers /></button>
@@ -453,7 +470,7 @@ export default function Main() {
         <div className="list">
           {threads.length === 0 && (
             <div className="empty">
-              <span className="ico"><Logo size={64} /></span>
+              <span className="ico"><IconChat /></span>
               <div><b style={{ color: "var(--text)", fontSize: 17 }}>Tudo pronto</b><br />Adicione alguém pelo número do app, QR code ou ID para começar uma conversa protegida.</div>
               <button className="btn primary" onClick={() => setDlg("add")}><IconPlus /> Novo contato</button>
             </div>
@@ -477,25 +494,24 @@ export default function Main() {
 
         {/* navegação inferior (celular) */}
         <button className="fab" aria-label="Novo contato" onClick={() => setDlg("add")}><IconPlus /></button>
-        <nav className="tabbar" aria-label="Navegação principal" style={{ ["--i" as string]: filter === "all" ? 0 : filter === "contacts" ? 1 : 2 }}>
+        <nav className="tabbar" aria-label="Navegação principal" style={{ ["--i" as string]: 0 }}>
           <span className="tab-ink" aria-hidden />
-          <button className={`tab ${filter === "all" ? "on" : ""}`} onClick={() => setFilter("all")} aria-current={filter === "all" ? "page" : undefined}>
-            <IconChat />Conversas{totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}
-          </button>
-          <button className={`tab ${filter === "contacts" ? "on" : ""}`} onClick={() => setFilter("contacts")} aria-current={filter === "contacts" ? "page" : undefined}><IconUser />Contatos</button>
-          <button className={`tab ${filter === "groups" ? "on" : ""}`} onClick={() => setFilter("groups")} aria-current={filter === "groups" ? "page" : undefined}><IconUsers />Grupos</button>
+          <button className="tab on" onClick={() => { setPane(null); setFilter("all"); }} aria-current="page"><IconChat />Conversas{totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}</button>
+          <button className="tab" onClick={() => setPane("today")}><IconNews />Hoje</button>
+          <button className="tab" onClick={() => setPane("music")}><IconMusic />Música</button>
           <button className="tab" onClick={() => openSettings()}><IconSettings />Ajustes</button>
         </nav>
       </aside>
 
       <main className="main">
-        {activeKey ? (
+        {pane === "today" ? <Today onBack={() => setPane(null)} name={me} /> : pane === "music" ? <Music onBack={() => setPane(null)} /> : activeKey ? (
           <Chat key={activeKey} peer={activeKey} onBack={closeChat} onReport={setRep} toast={toast} />
         ) : (
-          <div className="placeholder welcome-pane"><Logo size={88} /><div><b>SeuChat<em>Seguro</em></b><span>Selecione uma conversa para começar.</span></div><div className="pane-feats"><span><IconLock /> Ponta a ponta</span><span><IconShieldCheck /> Sem rastreio</span><span><IconSparkle /> Sem anúncios</span></div></div>
+          <div className="placeholder welcome-pane"><IconChat style={{ width: 56, height: 56 }} /><div><b>Suas conversas</b><span>Selecione uma conversa para começar.</span></div><div className="pane-feats"><span><IconLock /> Ponta a ponta</span><span><IconShieldCheck /> Privacidade</span></div></div>
         )}
       </main>
 
+      <MiniPlayer />
       {dlg === "add" && <AddContact onClose={() => setDlg(null)} />}
       {dlg === "qr" && <Suspense fallback={null}><QrDialog onClose={() => setDlg(null)} toast={toast} /></Suspense>}
       {dlg === "group" && <NewGroup onClose={() => setDlg(null)} onCreated={openChat} />}
