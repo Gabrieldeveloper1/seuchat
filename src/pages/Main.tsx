@@ -408,7 +408,7 @@ export default function Main() {
           {threads.length > 0 && shown.length === 0 && <div className="empty"><div>Nada encontrado.</div></div>}
           {shown.map((t) => (
             <button key={t.key} className={`row ${activeKey === t.key ? "on" : ""}`} onClick={() => openChat(t.key)}>
-              <Avatar name={t.title} seed={t.seed} src={t.avatar} />
+              <Avatar name={t.title} seed={t.seed} src={t.avatar} group={t.group} />
               <span className="meta">
                 <span className="name"><span>{t.title}</span>{t.unread > 0 && <span className="dot">{t.unread > 99 ? "99+" : t.unread}</span>}</span>
                 <span className="prev">{t.preview}</span>

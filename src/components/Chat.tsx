@@ -106,7 +106,7 @@ function ChatMenu({ peer, onClose, onProfile, onGroup }: { peer: string; onClose
 
 export default function Chat({ peer, onBack, onReport, toast }: { peer: string; onBack: () => void; onReport: (m: Msg) => void; toast: (t: string) => void }) {
   const app = useApp();
-  const { local, sendText, sendImage, sendAudio, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
+  const { local, sendText, sendImage, sendAudio, markRead, setBlocked, acceptContact, deleteMessage, startCall, acceptGroup, leaveGroup } = app;
   const isGroup = peer.startsWith("g:");
   const contact = isGroup ? undefined : local?.contacts.find((c) => c.id === peer);
   const group = isGroup ? local?.groups.find((g) => g.id === peer.slice(2)) : undefined;
@@ -179,7 +179,6 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
     await wrap(async () => { const a = await r.stop(); if (a.dur >= 1) { stick.current = true; await sendAudio(peer, a.dataUrl, a.dur); } }, "Falha ao enviar áudio");
   }
   const call = (v: boolean) => startCall(peer, v).catch((e) => toast(e instanceof Error ? e.message : "Falha na chamada"));
-  const groupCall = (v: boolean) => group && startGroupCall(group.id, v).catch((e) => toast(e instanceof Error ? e.message : "Falha na chamada em grupo"));
   const toggleSel = (id: string) => { if (window.getSelection()?.toString()) return; setSel((cur) => (cur === id ? null : id)); };
   const subtitle = group ? `${group.members.length} membros` : `${contact!.name && contact!.name !== contact!.alias ? `${contact!.name} · ` : ""}${contact!.phone ? formatPhone(contact!.phone) : shortId(contact!.id)}`;
 
@@ -188,19 +187,13 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
       <div className="chat-head">
         <button className="icon-btn back" onClick={onBack} aria-label="Voltar para as conversas"><IconBack /></button>
         <button className="who-btn" onClick={() => setDlg(group ? "group" : "profile")} aria-label={`Abrir ${group ? "grupo" : "perfil"} de ${title}`}>
-          <Avatar name={title} seed={group?.id ?? contact!.id} size="sm" src={contact?.avatar} />
+          <Avatar name={title} seed={group?.id ?? contact!.id} size="sm" src={contact?.avatar} group={!!group} />
           <span className="t"><b>{title}</b><span className="muted small">{subtitle}</span></span>
         </button>
         {contact && !contact.blocked && !contact.requested && (
           <>
             <button className="icon-btn" aria-label="Chamada de voz" title="Chamada de voz" onClick={() => void call(false)}><IconPhone /></button>
             <button className="icon-btn" aria-label="Chamada de vídeo" title="Chamada de vídeo" onClick={() => void call(true)}><IconVideo /></button>
-          </>
-        )}
-        {group && !group.requested && (
-          <>
-            <button className="icon-btn" aria-label="Chamada de voz em grupo" title="Chamada de voz em grupo" onClick={() => void groupCall(false)}><IconPhone /></button>
-            <button className="icon-btn" aria-label="Chamada de vídeo em grupo" title="Chamada de vídeo em grupo" onClick={() => void groupCall(true)}><IconVideo /></button>
           </>
         )}
         <button className="icon-btn" aria-label="Mais opções" title="Mais opções" onClick={() => setDlg("menu")}><IconMore /></button>
