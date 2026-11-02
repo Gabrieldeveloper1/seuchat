@@ -57,6 +57,7 @@ interface Ctx {
   setCallRelayOnly(on: boolean): void;
   call: CallState;
   startCall(peer: string, video: boolean): Promise<void>;
+  startGroupCall(gid: string, video: boolean): Promise<void>;
   acceptCall(): Promise<void>;
   rejectCall(): Promise<void>;
   hangup(): Promise<void>;
@@ -785,6 +786,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!c || c.blocked || c.requested) throw new Error("Aceite o contato antes de ligar");
     await callRef.current!.start(peer, video);
   }, []);
+  const startGroupCall = useCallback(async (gid: string, video: boolean) => {
+    const g = localRef.current?.groups.find((x) => x.id === gid);
+    const me = keysRef.current?.userId;
+    if (!g || g.requested || !me) throw new Error("Grupo não encontrado");
+    const members = g.members.filter((id) => id !== me && !localRef.current?.contacts.find((c) => c.id === id)?.blocked);
+    if (!members.length) throw new Error("Não há membros disponíveis para chamar");
+    await callRef.current!.start(members[0], video, { id: g.id, name: g.name, members });
+  }, []);
   const acceptCall = useCallback(() => callRef.current!.accept(), []);
   const rejectCall = useCallback(() => callRef.current!.reject(), []);
   const hangup = useCallback(() => callRef.current!.hangup(), []);
@@ -832,14 +841,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl,
       sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
-      call, startCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
+      call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
     [phase, local, userId, busy, error, notice, online, onboardingMnemonic, createAccount, linkPhone, addContactByPhone, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
-      call, startCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
+      call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
   );
 
   return <C.Provider value={value}>{children}</C.Provider>;
 }
-

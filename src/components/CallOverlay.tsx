@@ -76,8 +76,10 @@ export default function CallOverlay() {
 
   if (call.phase === "idle") return null;
 
-  const c = local?.contacts.find((x) => x.id === call.peer);
-  const name = c?.alias ?? "Contato";
+  const group = call.groupId ? local?.groups.find((x) => x.id === call.groupId) : undefined;
+  const primaryPeer = call.peer ?? Object.keys(call.remotes)[0] ?? call.participants[0];
+  const c = local?.contacts.find((x) => x.id === primaryPeer);
+  const name = group?.name ?? c?.alias ?? "Contato";
   const live = call.phase === "connected";
   const hasRemoteVideo = !!call.remote?.getVideoTracks().some((t) => t.readyState === "live" && !t.muted);
   const camOn = !!call.local?.getVideoTracks().some((t) => t.enabled && t.readyState === "live") && call.cam;
@@ -88,7 +90,12 @@ export default function CallOverlay() {
   const run = (f: () => Promise<void> | void) => async () => { setErr(null); try { await f(); } catch (e) { setErr(e instanceof Error ? e.message : "Erro"); } };
 
   // O áudio do contato fica num elemento próprio e invisível: continua tocando mesmo minimizado.
-  const audio = <Vid stream={call.remote} muted={deaf} className="hidden-media" />;
+  const audio = (
+    <>
+      {Object.values(call.remotes).map((stream, index) => <Vid key={index} stream={stream} muted={deaf} className="hidden-media" />)}
+      {!Object.keys(call.remotes).length && <Vid stream={call.remote} muted={deaf} className="hidden-media" />}
+    </>
+  );
 
   if (mini && live) {
     return (
@@ -223,12 +230,16 @@ export default function CallOverlay() {
         <div className="call-sheet-wrap" onMouseDown={(e) => e.target === e.currentTarget && setSheet(null)}>
           <div className="call-sheet" role="dialog" aria-label="Participantes">
             <div className="grab" />
-            <h3>Na chamada (2)</h3>
+            <h3>Na chamada ({Math.max(1, call.participants.length + 1)})</h3>
             <div className="people">
               <div className="member"><Avatar name={myName} seed={userId ?? "me"} size="sm" src={myAvatar} /><span>{myName} (você)</span>{!call.mic && <IconMicOff />}</div>
-              <div className="member"><Avatar name={name} seed={call.peer ?? ""} size="sm" src={c?.avatar} /><span>{name}</span></div>
+              {(call.participants.length ? call.participants : [primaryPeer]).filter(Boolean).map((id) => {
+                const member = local?.contacts.find((x) => x.id === id);
+                const memberName = member?.alias ?? (id === primaryPeer ? name : "Participante");
+                return <div className="member" key={id}><Avatar name={memberName} seed={id ?? ""} size="sm" src={member?.avatar} /><span>{memberName}</span>{call.remotes[id ?? ""] && <i className="live-dot" />}</div>;
+              })}
+              {group && <p className="small" style={{ margin: 0, opacity: 0.65, textAlign: "center" }}>Chamada em grupo criptografada entre os membros.</p>}
             </div>
-            <p className="small" style={{ margin: 0, opacity: 0.65, textAlign: "center" }}>Chamadas em grupo ainda não são suportadas.</p>
           </div>
         </div>
       )}
