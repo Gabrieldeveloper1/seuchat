@@ -1,0 +1,14 @@
+Versao "colar no painel" do Supabase (sem CLI):
+1) SQL Editor: rode SQL-1-schema.sql, SQL-2-identity-realtime.sql e SQL-3-telefone.sql (nessa ordem)
+2) Edge Functions > Secrets: JWT_SECRET, FRANKING_SERVER_KEY, MODERATION_PUBKEY, PHONE_PEPPER
+   (PHONE_PEPPER = 32 bytes aleatorios em base64:  openssl rand -base64 32)
+   Para verificar telefone por SMS: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SID
+   Apenas para TESTE (sem SMS): ALLOW_UNVERIFIED_PHONES=true  (nao use em producao)
+3) Edge Functions > Deploy via Editor: uma funcao por .ts (nome = nome do arquivo sem .ts), com "Verify JWT" DESLIGADO.
+   Funcoes novas: phone-link e phone-lookup.
+
+MODERACAO NO DISCORD (denuncias com botoes Aprovar/Rejeitar):
+- SQL: rode tambem SQL-4-decisoes.sql
+- Secrets: DISCORD_WEBHOOK_URL (URL do webhook), SITE_URL (https do seu site, sem barra final),
+  DISCORD_LINK_KEY (openssl rand -base64 32), MODERATION_ADMIN_KEYS ("nome:chave,nome2:chave2", chaves com 16+ caracteres)
+- Publicar a funcao nova: report-decision (e republicar report-verify)

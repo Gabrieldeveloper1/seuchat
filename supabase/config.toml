@@ -1,0 +1,17 @@
+# Todas as funções verificam o JWT por conta própria (JWT customizado emitido pela função "login").
+[functions.register]
+verify_jwt = false
+[functions.login]
+verify_jwt = false
+[functions.send-message]
+verify_jwt = false
+[functions.report-verify]
+verify_jwt = false
+[functions.delete-account]
+verify_jwt = false
+[functions.report-decision]
+verify_jwt = false
+[functions.phone-link]
+verify_jwt = false
+[functions.phone-lookup]
+verify_jwt = false
