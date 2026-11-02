@@ -16,7 +16,13 @@ export async function profileImage(file: File, kind: "avatar" | "banner"): Promi
     const ctx = c.getContext("2d")!;
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
     ctx.drawImage(bmp, (w - dw) / 2, (h - dh) / 2, dw, dh);
-    return c.toDataURL("image/jpeg", 0.8);
+    // Limites compatíveis com a validação dos destinatários e o relay.
+    const limit = kind === "avatar" ? 58_000 : 115_000;
+    for (let quality = 0.8; quality >= 0.2; quality -= 0.1) {
+      const result = c.toDataURL("image/jpeg", quality);
+      if (result.length <= limit) return result;
+    }
+    throw new Error("A imagem é muito detalhada. Escolha outra imagem.");
   } finally {
     bmp.close();
   }

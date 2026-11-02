@@ -12,6 +12,7 @@ export interface Contact {
   addedAt: number;
   avatar?: string;
   banner?: string;
+  lastSeen?: number; // última atividade observada neste aparelho
   profSent?: boolean; // já enviamos nosso perfil a este contato
 }
 

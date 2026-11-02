@@ -8,23 +8,10 @@ export function colorFor(seed: string): string {
 
 export const DEFAULT_AVATAR = "/default-avatar.svg";
 
-export default function Avatar({ name, seed, size = "", src, group = false }: { name: string; seed: string; size?: "sm" | "xl" | ""; src?: string; group?: boolean }) {
-  if (!group) {
-    return (
-      <img
-        className={`avatar ${size}`}
-        src={src || DEFAULT_AVATAR}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        onError={(e) => { if (!e.currentTarget.src.endsWith(DEFAULT_AVATAR)) e.currentTarget.src = DEFAULT_AVATAR; }}
-      />
-    );
-  }
-  const letter = (name.trim()[0] ?? "?").toUpperCase();
-  return (
-    <span className={`avatar ${size}`} style={{ background: `linear-gradient(135deg, ${colorFor(seed)}, ${colorFor(seed + "x")})` }} aria-hidden>
-      {letter}
-    </span>
-  );
+export const DEFAULT_GROUP_AVATAR = "/default-group.jpg";
+
+export default function Avatar({ name, seed: _seed, size = "", src, group = false }: { name: string; seed: string; size?: "sm" | "xl" | ""; src?: string; group?: boolean }) {
+  const fallback = group ? DEFAULT_GROUP_AVATAR : DEFAULT_AVATAR;
+  return <img className={`avatar ${size}`} src={src || fallback} alt={group ? `Imagem de ${name}` : ""} loading="lazy" decoding="async"
+    onError={(e) => { if (!e.currentTarget.src.endsWith(fallback)) e.currentTarget.src = fallback; }} />;
 }

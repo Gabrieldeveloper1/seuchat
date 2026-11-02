@@ -11,7 +11,7 @@ import { ID_RE } from "../lib/util";
 import Avatar from "../components/Avatar";
 import PasswordInput from "../components/PasswordInput";
 import { formatAppNumber } from "../lib/phone";
-import { blocklistStatus, imageSendingAllowed } from "../lib/imageFilter";
+import { imageSendingAllowed } from "../lib/imageFilter";
 import { shortId } from "../lib/util";
 import type { Msg } from "../types";
 
@@ -186,12 +186,6 @@ function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: ()
   const [name, setName] = useState(local?.profile.name ?? "");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  const f = blocklistStatus();
-  const fText = f.status === "ok"
-    ? `ativo (${f.count} hashes)`
-    : f.status === "invalid"
-      ? `lista inválida (${imageSendingAllowed() ? "modo de desenvolvimento" : "imagens bloqueadas"})`
-      : `lista não configurada (${imageSendingAllowed() ? "modo de desenvolvimento" : "imagens bloqueadas até configurar"})`;
   const theme = local?.settings.theme ?? "auto";
   return (
     <Dialog title="Configurações" onClose={onClose}>
@@ -225,10 +219,10 @@ function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: ()
           {[1, 5, 10, 30, 0].map((m) => <option key={m} value={m}>{m ? `Após ${m} min parado` : "Nunca"}</option>)}
         </select>
       </div>
-      <label className="check kv">
-        <input type="checkbox" checked={!!local?.settings.callRelayOnly} disabled={!turnConfigured} onChange={(e) => setCallRelayOnly(e.target.checked)} />
-        <span>Esconder meu IP nas chamadas (usar só o servidor TURN){!turnConfigured && <span className="muted small" style={{ display: "block" }}>Indisponível: o servidor TURN não foi configurado. Sem ele, quem está na chamada vê o seu IP.</span>}</span>
-      </label>
+      {turnConfigured ? <label className="check kv">
+        <input type="checkbox" checked={!!local?.settings.callRelayOnly} onChange={(e) => setCallRelayOnly(e.target.checked)} />
+        <span>Proteger meu IP nas chamadas</span>
+      </label> : <div className="kv muted small">Chamadas podem expor seu IP aos participantes. Configure um servidor TURN para protegê-lo.</div>}
       <PasswordBlock />
       <div className="kv">
         <span className="muted small">Frase de recuperação</span>
@@ -239,10 +233,7 @@ function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: ()
           </>
         ) : <button className="btn" onClick={() => setShowWords(true)}>Mostrar</button>}
       </div>
-      <div className="kv">
-        <span className="muted small">Filtro de segurança de imagens</span>
-        <span>{fText}</span>
-      </div>
+      {!imageSendingAllowed() && <div className="kv muted small">O envio de imagens está indisponível até que o filtro de segurança seja configurado.</div>}
       <button className="btn" onClick={() => { onClose(); lock(); }}><IconLock /> Bloquear agora</button>
       <button className="btn" onClick={onTerms}>Termos e Privacidade</button>
       <div className="kv" style={{ borderBottom: 0 }}>

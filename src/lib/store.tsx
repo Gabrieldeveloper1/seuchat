@@ -21,6 +21,9 @@ interface Ctx {
   error: string | null;
   notice: string | null;
   online: boolean;
+  activity: Record<string, number>;
+  typing: Record<string, Record<string, number>>;
+  sendActivity(peer: string, kind: "ping" | "typing"): void;
   onboardingMnemonic: string | null;
   clearOnboarding(): void;
   clearNotice(): void;
@@ -113,6 +116,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [online, setOnline] = useState(false);
+  const [activity, setActivity] = useState<Record<string, number>>({});
+  const [typing, setTyping] = useState<Record<string, Record<string, number>>>({});
+  const signalRef = useRef<(peer: string, payload: string) => Promise<unknown>>(async () => {});
   const [onboardingMnemonic, setOnb] = useState<string | null>(null);
 
   const localRef = useRef<LocalState | null>(null);
@@ -155,6 +161,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!sess || !keys || seen.current.has(row.id)) return;
       seen.current.add(row.id);
       let drop = true; // apaga do servidor mesmo se for inválida
+      let ephemeral = false;
       try {
         await sodium.ready;
         const sealed = sodium.crypto_box_seal_open(hexToBytes(row.ciphertext), keys.spkPub, keys.spkSec);
@@ -164,6 +171,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let contact = localRef.current!.contacts.find((c) => c.id === row.sender_id);
         if (contact?.blocked) throw new Error("bloqueado");
         if (!contact) {
+          // Sinais efêmeros não criam solicitações de contato inesperadas.
+          const kind = (() => { try { return JSON.parse(env.payload)?.t; } catch { return undefined; } })();
+          if (kind === "activity" || kind === "typing") throw new Error("sinal de desconhecido");
           let peer;
           try {
             peer = await fetchIdentity(sess.client, row.sender_id);
@@ -209,7 +219,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }));
         }
 
-        if (p.t === "read" && Array.isArray(p.ids)) {
+        if (p.t === "activity" && !contact.requested) {
+          // Só sinais recentes indicam presença; mensagens atrasadas não geram resposta.
+          const ts = Math.min(Date.now(), Number(row.sent_at));
+          if (!Number.isFinite(ts) || Date.now() - ts > 65_000) { ephemeral = true; }
+          else {
+            setActivity((state) => ({ ...state, [row.sender_id]: Math.max(state[row.sender_id] ?? 0, ts) }));
+            update((s) => ({ ...s, contacts: s.contacts.map((c) => c.id === row.sender_id ? { ...c, lastSeen: Math.max(c.lastSeen ?? 0, ts) } : c) }));
+            if (p.op === "ping" && document.visibilityState === "visible") void signalRef.current(row.sender_id, JSON.stringify({ t: "activity", op: "pong" })).catch(() => {});
+          }
+        } else if (p.t === "typing" && !contact.requested) {
+          ephemeral = true;
+          const ts = Number(row.sent_at);
+          const g = p.gid ? localRef.current!.groups.find((item) => item.id === p.gid && !item.requested && item.members.includes(row.sender_id) && item.members.includes(keys.userId)) : undefined;
+          if (Number.isFinite(ts) && Date.now() - ts < 8_000 && (!p.gid || g)) {
+            const thread = g ? `g:${g.id}` : row.sender_id;
+            setTyping((state) => ({ ...state, [thread]: { ...state[thread], [row.sender_id]: Math.min(ts, Date.now()) } }));
+          }
+        } else if (p.t === "read" && Array.isArray(p.ids)) {
           const readAt = Date.now();
           update((s) => ({
             ...s,
@@ -341,7 +368,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } finally {
         if (drop) {
           try {
-            await flush(); // grava localmente ANTES de apagar do servidor
+            if (!ephemeral) await flush(); // grava localmente ANTES de apagar do servidor
             await sess.ack(row.id);
           } catch {
             seen.current.delete(row.id);
@@ -381,6 +408,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sessRef.current?.stop();
     sessRef.current = null;
     setOnline(false);
+    setActivity({});
+    setTyping({});
   }, []);
 
   const beginSession = useCallback(
@@ -660,6 +689,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  signalRef.current = transmit;
+  const sendActivity = useCallback((peer: string, kind: "ping" | "typing") => {
+    if (!sessRef.current || document.visibilityState !== "visible") return;
+    const state = localRef.current;
+    if (!state) return;
+    const group = peer.startsWith("g:") ? state.groups.find((g) => g.id === peer.slice(2) && !g.requested) : undefined;
+    if (peer.startsWith("g:") && !group) return;
+    const targets = group ? group.members.filter((id) => id !== keysRef.current?.userId) : [peer];
+    const payload = JSON.stringify({ t: kind === "ping" ? "activity" : "typing", op: kind, gid: group?.id });
+    for (const id of targets) {
+      const c = state.contacts.find((x) => x.id === id);
+      if (c && !c.blocked && !c.requested) void transmit(id, payload).catch(() => {});
+    }
+  }, [transmit]);
+
   const sendProfile = useCallback(
     async (peer: string) => {
       const pr = localRef.current?.profile;
@@ -748,10 +792,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           auditAllowed: canViewAudit, audit: canViewAudit ? (g.audit ?? []).slice(-200) : [],
         });
       };
-      await Promise.allSettled([
+      const results = await Promise.allSettled([
         ...g.members.filter((m) => m !== me).map((m) => transmit(m, body(m, g.members))),
         ...also.map((m) => transmit(m, body(m, g.members))), // removidos recebem lista sem eles e apagam o grupo
       ]);
+      if (results.some((result) => result.status === "rejected")) {
+        throw new Error("O grupo foi salvo neste aparelho, mas alguns membros não receberam a atualização. Verifique a conexão e salve novamente.");
+      }
     },
     [transmit],
   );
@@ -970,7 +1017,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(
     () => ({
-      phase, local, userId, busy, error, notice, online, onboardingMnemonic,
+      phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic,
       clearOnboarding: () => setOnb(null),
       clearNotice: () => setNotice(null),
       createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
@@ -979,7 +1026,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
-    [phase, local, userId, busy, error, notice, online, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+    [phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],

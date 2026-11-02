@@ -225,7 +225,7 @@ function ChatMenu({ peer, onClose, onProfile, onGroup }: { peer: string; onClose
 
 export default function Chat({ peer, onBack, onReport, toast }: { peer: string; onBack: () => void; onReport: (m: Msg) => void; toast: (t: string) => void }) {
   const app = useApp();
-  const { local, userId, sendText, sendImage, sendAudio, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
+  const { local, userId, activity, typing, sendActivity, sendText, sendImage, sendAudio, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
   const isGroup = peer.startsWith("g:");
   const contact = isGroup ? undefined : local?.contacts.find((c) => c.id === peer);
   const group = isGroup ? local?.groups.find((g) => g.id === peer.slice(2)) : undefined;
@@ -244,6 +244,28 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
   const end = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const lastTypingSent = useRef(0);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 3000); return () => clearInterval(timer); }, []);
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
+  useEffect(() => {
+    if (isGroup || !contact || contact.blocked || contact.requested) return;
+    let attempts = 0;
+    const ping = () => {
+      if (document.visibilityState !== "visible") return;
+      const recent = Date.now() - (activityRef.current[peer] ?? 0) < 65_000;
+      // Não acumula sondagens sem limite na fila de contatos ausentes.
+      if (attempts >= 3 && !recent) return;
+      attempts++;
+      sendActivity(peer, "ping");
+    };
+    const wake = () => { if (document.visibilityState === "visible") { attempts = 0; ping(); } };
+    ping();
+    const timer = window.setInterval(ping, 25_000);
+    document.addEventListener("visibilitychange", wake);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", wake); };
+  }, [peer, isGroup, contact?.blocked, contact?.requested, sendActivity]);
   const stick = useRef(true); // só rola para o fim se a pessoa já estava no fim
 
   const lastId = msgs[msgs.length - 1]?.id;
@@ -292,11 +314,18 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
     setSending(true);
     try { await f(); } catch (e) { toast(e instanceof Error ? e.message : fail); } finally { setSending(false); }
   }
-  const send = () => text.trim() && !sending && void wrap(async () => {
+  const send = () => {
+    const draft = text;
+    if (!draft.trim() || locked) return;
+    const reply = replyTo ?? undefined;
+    const selected = mentions.filter((id) => draft.includes(`@${nameOf(id)}`));
     stick.current = true;
-    await sendText(peer, text, replyTo ?? undefined, mentions.filter((id) => text.includes(`@${nameOf(id)}`)));
     setText(""); setMentions([]); setReplyTo(null); ta.current?.focus();
-  }, "Falha ao enviar");
+    void sendText(peer, draft, reply, selected).catch((e) => {
+      setText((current) => current || draft);
+      toast(e instanceof Error ? e.message : "Falha ao enviar");
+    });
+  };
   const pick = (f?: File) => f && void wrap(async () => { stick.current = true; await sendImage(peer, f); }, "Falha ao enviar imagem").finally(() => { if (file.current) file.current.value = ""; });
 
   async function startRec() {
@@ -312,7 +341,11 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
   }
   const call = (v: boolean) => (group ? startGroupCall(group.id, v) : startCall(peer, v)).catch((e) => toast(e instanceof Error ? e.message : "Falha na chamada"));
   const toggleSel = (id: string) => { if (window.getSelection()?.toString()) return; setSel((cur) => (cur === id ? null : id)); };
-  const subtitle = group ? `${group.members.length} membros` : `${contact!.name && contact!.name !== contact!.alias ? `${contact!.name} · ` : ""}${contact!.appNumber ? formatAppNumber(contact!.appNumber) : shortId(contact!.id)}`;
+  const typers = Object.entries(typing[peer] ?? {}).filter(([, ts]) => now - ts < 8000).map(([id]) => nameOf(id));
+  const lastSeen = contact?.lastSeen;
+  const isOnline = !!contact && !!activity[contact.id] && now - activity[contact.id] < 65_000;
+  const subtitle = typers.length ? (group ? `${typers.slice(0, 2).join(", ")} ${typers.length > 1 ? "estão digitando" : "está digitando"}` : "digitando…")
+    : group ? `${group.members.length} membros` : isOnline ? "Online" : lastSeen ? `Offline · visto por último ${new Date(lastSeen).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "Status indisponível";
 
   return (
     <>
@@ -320,7 +353,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
         <button className="icon-btn back" onClick={onBack} aria-label="Voltar para as conversas"><IconBack /></button>
         <button className="who-btn" onClick={() => setDlg(group ? "group" : "profile")} aria-label={`Abrir ${group ? "grupo" : "perfil"} de ${title}`}>
           <Avatar name={title} seed={group?.id ?? contact!.id} size="sm" src={group?.avatar ?? contact?.avatar} group={!!group} />
-          <span className="t"><b>{title}</b><span className="muted small">{subtitle}</span></span>
+          <span className="t"><b>{title}</b><span className={`small ${isOnline || typers.length ? "presence-active" : "muted"}`}>{subtitle}</span></span>
         </button>
         {contact && !contact.blocked && !contact.requested && (
           <>
@@ -395,6 +428,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
             )}
           </Fragment>
         ))}
+        {typers.length > 0 && <div className="typing-indicator" role="status" aria-label={subtitle}><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span><span>{subtitle}</span></div>}
         <div ref={end} />
       </div>
 
@@ -431,7 +465,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
           <>
             <input ref={file} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={(e) => pick(e.target.files?.[0])} />
             <button className="icon-btn" aria-label="Anexar imagem" disabled={sending || locked || !imageSendingAllowed()} title={imageSendingAllowed() ? "Anexar imagem" : "Envio de imagens desativado"} onClick={() => file.current?.click()}><IconAttach /></button>
-            <textarea ref={ta} className="input" rows={1} placeholder="Mensagem" value={text} disabled={locked} enterKeyHint="send" autoComplete="off" onChange={(e) => setText(e.target.value)}
+            <textarea ref={ta} className="input" rows={1} placeholder="Mensagem" value={text} disabled={locked} enterKeyHint="send" autoComplete="off" onChange={(e) => { const value = e.target.value; setText(value); if (value.trim() && Date.now() - lastTypingSent.current > 4000) { lastTypingSent.current = Date.now(); sendActivity(peer, "typing"); } }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse()) { e.preventDefault(); send(); } }} />
             {text.trim() ? (
               <button className="btn primary send" aria-label="Enviar" disabled={sending || locked} onClick={send}><IconSend /></button>
