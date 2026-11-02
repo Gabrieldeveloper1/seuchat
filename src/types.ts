@@ -49,6 +49,7 @@ export interface Msg {
   expiresAt?: number;
   frank?: FrankInfo;
   reported?: boolean;
+  pending?: boolean; // envio otimista ainda aguardando confirmação do relay
   reply?: { id: string; text: string };
 }
 
@@ -57,6 +58,8 @@ export interface Settings {
   theme: "auto" | "light" | "dark";
   backupDone: boolean;
   callRelayOnly?: boolean;
+  /** Exibe o aviso de migração apenas para contas antigas sem número vinculado. */
+  phoneMigrationRequired?: boolean;
 }
 
 export interface Profile {

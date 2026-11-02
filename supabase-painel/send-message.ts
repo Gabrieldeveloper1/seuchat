@@ -124,19 +124,22 @@ Deno.serve(async (req) => {
   if (!b.recipientId || !/^[a-z2-7]{26}$/.test(b.recipientId) || !b.ciphertext || !b.tag || !b.senderSig) return fail(400, "campos");
 
   const db = admin();
-  const { data: me } = await db.from("identities").select("identity_key,banned_at").eq("user_id", senderId).maybeSingle();
+  const [{ data: me }, { data: rcpt }] = await Promise.all([
+    db.from("identities").select("identity_key,banned_at").eq("user_id", senderId).maybeSingle(),
+    db.from("identities").select("user_id,banned_at").eq("user_id", b.recipientId).maybeSingle(),
+  ]);
   if (!me || me.banned_at) return fail(403, "forbidden");
-
-  const { data: rcpt } = await db.from("identities").select("user_id,banned_at").eq("user_id", b.recipientId).maybeSingle();
   if (!rcpt || rcpt.banned_at) return fail(404, "destinatário não encontrado");
 
   const ct = b64d(b.ciphertext), tag = b64d(b.tag), sig = b64d(b.senderSig);
   if (ct.length > 262144 || tag.length !== 32 || sig.length !== 64) return fail(400, "tamanhos");
 
   // anti-flood: fila do destinatário e fila deste remetente para este destinatário
-  const { count: total } = await db.from("relay_messages").select("id", { count: "exact", head: true }).eq("recipient_id", b.recipientId);
+  const [{ count: total }, { count: mine }] = await Promise.all([
+    db.from("relay_messages").select("id", { count: "exact", head: true }).eq("recipient_id", b.recipientId),
+    db.from("relay_messages").select("id", { count: "exact", head: true }).eq("recipient_id", b.recipientId).eq("sender_id", senderId),
+  ]);
   if ((total ?? 0) >= 5000) return fail(429, "fila do destinatário cheia");
-  const { count: mine } = await db.from("relay_messages").select("id", { count: "exact", head: true }).eq("recipient_id", b.recipientId).eq("sender_id", senderId);
   if ((mine ?? 0) >= 300) return fail(429, "muitas mensagens pendentes");
 
   if (!nacl.sign.detached.verify(cat(enc.encode("scs-sig-v1"), tag, enc.encode(b.recipientId)), sig, fromPg(me.identity_key))) return fail(400, "assinatura");

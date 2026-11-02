@@ -238,8 +238,9 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
               <div className="foot">
                 {m.ttl > 0 && <IconClock aria-label="Mensagem temporária" />}
                 <span>{time(m.ts)}</span>
-                {m.dir === "out" && !group && (m.readAt ? <IconCheckDouble aria-label="Lida" /> : <IconCheck aria-label="Enviada" />)}
-                {m.dir === "out" && group && <IconCheck aria-label="Enviada" />}
+                {m.dir === "out" && m.pending && <span className="small muted" aria-label="Enviando">…</span>}
+                {m.dir === "out" && !m.pending && !group && (m.readAt ? <IconCheckDouble aria-label="Lida" /> : <IconCheck aria-label="Enviada" />)}
+                {m.dir === "out" && !m.pending && group && <IconCheck aria-label="Enviada" />}
                 {m.reported && <span className="reported">denunciada</span>}
               </div>
             </div>

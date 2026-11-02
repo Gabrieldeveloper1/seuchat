@@ -73,12 +73,24 @@ const MAX_TEXT = 8000;
 const TTLS = new Set([0, 5, 30, 300, 3600, 86400, 604800]);
 
 function emptyState(mnemonic: string, name = ""): LocalState {
-  return { v: 1, mnemonic, profile: { name }, contacts: [], groups: [], messages: [], settings: { autolockMin: 10, theme: "auto", backupDone: false } };
+  return { v: 1, mnemonic, profile: { name }, contacts: [], groups: [], messages: [], settings: { autolockMin: 10, theme: "auto", backupDone: false, phoneMigrationRequired: false } };
 }
 
 /** Cofres criados em versões antigas não têm perfil/tema. */
 function migrate(s: LocalState): LocalState {
-  return { ...s, groups: s.groups ?? [], profile: s.profile ?? { name: "" }, settings: { ...s.settings, theme: s.settings.theme ?? "auto", backupDone: s.settings.backupDone ?? true } };
+  const profile = s.profile ?? { name: "" };
+  return {
+    ...s,
+    groups: s.groups ?? [],
+    profile,
+    settings: {
+      ...s.settings,
+      theme: s.settings?.theme ?? "auto",
+      backupDone: s.settings?.backupDone ?? true,
+      // Em cofres antigos, a ausência do marcador identifica contas anteriores ao recurso.
+      phoneMigrationRequired: s.settings?.phoneMigrationRequired ?? !profile.phone,
+    },
+  };
 }
 
 function errMsg(e: unknown): string {
@@ -422,6 +434,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const keys = await keysFromMnemonic(m);
         const state = emptyState(m);
         state.settings.backupDone = true;
+        state.settings.phoneMigrationRequired = true;
         const handle = await createVault(pass, state);
         await enter(state, handle, keys);
       } catch (e) {
@@ -551,7 +564,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const sess = sessRef.current;
       if (!sess) throw new Error("Sem conexão com o servidor");
       const r = await apiLinkPhone(sess.getJwt(), e164, code);
-      if (r.step === "done") update((s) => ({ ...s, profile: { ...s.profile, phone: e164, phoneVerified: !!r.verified } }));
+      if (r.step === "done") update((s) => ({
+        ...s,
+        profile: { ...s.profile, phone: e164, phoneVerified: !!r.verified },
+        settings: { ...s.settings, phoneMigrationRequired: false },
+      }));
       return r;
     },
     [update],
@@ -630,11 +647,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const ts = Date.now();
       const rt = reply ? { id: reply.id, text: (reply.text ?? (reply.kind === "audio" ? "Áudio" : "Imagem")).slice(0, 120) } : undefined;
       const payload = JSON.stringify({ t: group ? "gmsg" : "msg", gid: group?.id, id, kind, text, image, audio, dur, ttl, ts, n: localRef.current?.profile.name || undefined, rt });
-      const res = await Promise.allSettled(targets.map((t) => transmit(t, payload)));
-      const okRes = res.find((r): r is PromiseFulfilledResult<{ sentAt: number }> => r.status === "fulfilled");
-      if (!okRes) throw (res[0] as PromiseRejectedResult).reason;
-      const m: Msg = { id, peer, from: me, dir: "out", kind, text, image, audio, dur, ts: okRes.value.sentAt ?? ts, ttl, reply: rt };
+      const m: Msg = { id, peer, from: me, dir: "out", kind, text, image, audio, dur, ts, ttl, reply: rt, pending: true };
+      // Mostra a mensagem imediatamente; a criptografia e o relay seguem em segundo plano.
       update((s) => ({ ...s, messages: [...s.messages, m] }));
+      try {
+        // Em grupos, não prendemos a confirmação ao membro mais lento: basta um envio aceito.
+        const sent = await Promise.any(targets.map((t) => transmit(t, payload)));
+        update((s) => ({
+          ...s,
+          messages: s.messages.map((msg) => msg.id === id ? { ...msg, ts: sent.sentAt ?? ts, pending: false } : msg),
+        }));
+      } catch (e) {
+        const reason = e instanceof AggregateError ? e.errors[0] : e;
+        update((s) => ({ ...s, messages: s.messages.filter((msg) => msg.id !== id) }));
+        throw reason;
+      }
       if (contact && !contact.profSent) void sendProfile(peer).catch(() => {});
     },
     [transmit, update, sendProfile],

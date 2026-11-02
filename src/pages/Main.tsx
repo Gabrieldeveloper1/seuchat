@@ -391,6 +391,12 @@ export default function Main() {
             <button className="btn" style={{ minHeight: 36 }} onClick={() => setDlg("settings")}>Ver</button>
           </div>
         )}
+        {local?.settings.phoneMigrationRequired && !local.profile.phone && (
+          <div className="banner" style={{ margin: "0 12px 8px" }} role="status">
+            <span>Olá! Agora usamos números personalizados. Crie o seu para que outras pessoas encontrem você.</span>
+            <button className="btn" style={{ minHeight: 36 }} onClick={() => setDlg("settings")}>Migrar</button>
+          </div>
+        )}
         <div className="chips" role="tablist" aria-label="Filtrar">
           {filters.map((f) => <button key={f.v} role="tab" aria-selected={filter === f.v} className={`chip ${filter === f.v ? "on" : ""}`} onClick={() => setFilter(f.v)}>{f.t}</button>)}
         </div>

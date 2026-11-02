@@ -56,6 +56,7 @@ export default function CallOverlay() {
   const { call, local, userId, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera } = useApp();
   const [sec, setSec] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const [accepting, setAccepting] = useState(false);
   const [mini, setMini] = useState(false);
   const [sheet, setSheet] = useState<null | "share" | "people" | "confirm">(null);
   const [deaf, setDeaf] = useState(false);
@@ -86,6 +87,12 @@ export default function CallOverlay() {
   const myAvatar = local?.profile.avatar;
   const myName = local?.profile.name || "Você";
   const run = (f: () => Promise<void> | void) => async () => { setErr(null); try { await f(); } catch (e) { setErr(e instanceof Error ? e.message : "Erro"); } };
+  const accept = async () => {
+    if (accepting) return;
+    setErr(null);
+    setAccepting(true);
+    try { await acceptCall(); } catch (e) { setErr(e instanceof Error ? e.message : "Erro"); } finally { setAccepting(false); }
+  };
 
   // O áudio do contato fica num elemento próprio e invisível: continua tocando mesmo minimizado.
   const audio = <Vid stream={call.remote} muted={deaf} className="hidden-media" />;
@@ -172,7 +179,7 @@ export default function CallOverlay() {
       {call.phase === "incoming" ? (
         <div className="incoming-bar">
           <figure><button className="dock-btn hang" style={{ margin: 0, width: 68, height: 68, borderRadius: "50%" }} aria-label="Recusar" onClick={() => void rejectCall()}><IconHangup /></button>Recusar</figure>
-          <figure><button className="dock-btn good" style={{ borderRadius: "50%" }} aria-label="Atender" onClick={run(acceptCall)}><IconPhone /></button>Atender</figure>
+          <figure><button className="dock-btn good" style={{ borderRadius: "50%" }} aria-label={accepting ? "Conectando" : "Atender"} aria-busy={accepting} disabled={accepting} onClick={() => void accept()}><IconPhone /></button>{accepting ? "Conectando…" : "Atender"}</figure>
         </div>
       ) : (
         <div className="call-dock">
