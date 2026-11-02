@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import sodium from "libsodium-wrappers-sumo";
-import type { Contact, Group, LocalState, Msg } from "../types";
+import type { Contact, Group, GroupAuditEntry, GroupRole, LocalState, Msg } from "../types";
 import { CallEngine, IDLE, type CallState } from "./callEngine";
 import { ID_RE, dec, enc, fromB64, hexToBytes, toB64 } from "./util";
 import { isValidMnemonic, keysFromMnemonic, newMnemonic, normalizeMnemonic, type Keys } from "./crypto";
-import { normalizePhone } from "./phone";
+import { normalizeAppNumber } from "./phone";
 import { createVault, openVault, saveVault, vaultExists, wipeVault, type VaultHandle } from "./vault";
 import { startSession, fetchIdentity, type RelayRow, type Session } from "./session";
-import { ApiError, deleteAccount as apiDeleteAccount, lookupPhone, linkPhone as apiLinkPhone, sendMessage, submitReport } from "./api";
+import { ApiError, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers } from "./api";
 import { buildReport, frankMessage, verifyIncoming, type ReportPayload } from "./franking";
 import { dataUrlIsBlocked, loadBlocklist, prepareImage } from "./imageFilter";
 
@@ -24,11 +24,9 @@ interface Ctx {
   onboardingMnemonic: string | null;
   clearOnboarding(): void;
   clearNotice(): void;
-  createAccount(name: string, phone: string, pass: string): Promise<void>;
-  linkPhone(phone: string, code?: string): Promise<{ step: "code" | "done"; verified?: boolean }>;
-  addContactByPhone(phone: string, alias: string): Promise<void>;
+  createAccount(name: string, pass: string): Promise<void>;
+  addContactByNumber(appNumber: string, alias: string): Promise<void>;
   setProfileName(name: string): void;
-  setProfileBio(bio: string): void;
   changePassword(oldPass: string, newPass: string): Promise<void>;
   deleteMessage(id: string): void;
   markBackupDone(): void;
@@ -43,7 +41,7 @@ interface Ctx {
   acceptContact(id: string): void;
   removeContact(id: string): void;
   setContactTtl(id: string, ttl: number): void;
-  sendText(peer: string, text: string, reply?: Msg): Promise<void>;
+  sendText(peer: string, text: string, reply?: Msg, mentions?: string[]): Promise<void>;
   sendImage(peer: string, file: File): Promise<void>;
   markRead(peer: string): void;
   report(msg: Msg, category: ReportPayload["category"]): Promise<void>;
@@ -52,12 +50,13 @@ interface Ctx {
   sendAudio(peer: string, dataUrl: string, dur: number): Promise<void>;
   setProfileImages(avatar?: string | null, banner?: string | null): void;
   createGroup(name: string, members: string[]): Promise<string>;
-  updateGroup(gid: string, patch: { name?: string; members?: string[]; ttl?: number; avatar?: string | null }): Promise<void>;
+  updateGroup(gid: string, patch: Partial<Pick<Group, "name" | "members" | "ttl" | "description" | "avatar" | "banner" | "roles" | "memberRoles" | "autoRole">>): Promise<void>;
   leaveGroup(gid: string): Promise<void>;
   acceptGroup(gid: string): void;
   setCallRelayOnly(on: boolean): void;
   call: CallState;
   startCall(peer: string, video: boolean): Promise<void>;
+  startGroupCall(gid: string, video: boolean): Promise<void>;
   acceptCall(): Promise<void>;
   rejectCall(): Promise<void>;
   hangup(): Promise<void>;
@@ -82,7 +81,13 @@ function migrate(s: LocalState): LocalState {
   const profile = s.profile ?? { name: "" };
   return {
     ...s,
-    groups: s.groups ?? [],
+    groups: (s.groups ?? []).map((g) => ({
+      ...g,
+      roles: g.roles?.length ? g.roles : [{ id: "everyone", name: "@Everyone", permissions: [] }],
+      memberRoles: g.memberRoles ?? Object.fromEntries(g.members.map((m) => [m, "everyone"])),
+      autoRole: g.autoRole ?? "everyone",
+      audit: g.audit ?? [],
+    })),
     profile,
     settings: {
       ...s.settings,
@@ -188,8 +193,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!ok) throw new Error("franking");
 
         const p = JSON.parse(env.payload) as {
-          t: string; id?: string; kind?: string; text?: string; image?: string; audio?: string; dur?: number; ttl?: number; ts?: number; ids?: string[];
-          n?: string; bio?: string; rt?: { id?: string; text?: string }; gid?: string; name?: string; members?: string[]; av?: string; bn?: string; avatar?: string;
+          t: string; op?: string; id?: string; kind?: string; text?: string; image?: string; audio?: string; dur?: number; ttl?: number; ts?: number; ids?: string[];
+          n?: string; an?: string; rt?: { id?: string; text?: string }; gid?: string; name?: string; members?: string[]; av?: string; bn?: string;
+          description?: string; roles?: GroupRole[]; memberRoles?: Record<string, string>; autoRole?: string;
+          audit?: GroupAuditEntry[]; auditAllowed?: boolean; mentions?: string[];
         };
 
         if (typeof p.n === "string" && p.n.trim()) {
@@ -215,7 +222,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else if (p.t === "prof") {
           if (contact.requested) throw new Error("perfil de desconhecido");
           const patch: Partial<Contact> = {};
-          if (typeof p.bio === "string") patch.bio = p.bio.trim().slice(0, 280) || undefined;
+          if (typeof p.an === "string" && /^[1-9]\d{4}-\d{4}$/.test(p.an)) patch.appNumber = p.an;
           for (const [k, v, max] of [["avatar", p.av, 60_000], ["banner", p.bn, 120_000]] as const) {
             if (typeof v !== "string") continue;
             if (v === "") patch[k] = undefined;
@@ -224,7 +231,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const sid = row.sender_id;
           update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === sid ? { ...c, ...patch } : c)) }));
         } else if (p.t === "call") {
-          if (!contact.requested) void callRef.current?.handle(row.sender_id, p as never, row.sent_at);
+          if (p.gid) {
+            const group = localRef.current!.groups.find((g) => g.id === p.gid);
+            const senderRole = group?.roles?.find((r) => r.id === (group.memberRoles?.[row.sender_id] ?? "everyone"));
+            const receiverRole = group?.roles?.find((r) => r.id === (group.memberRoles?.[keys.userId] ?? "everyone"));
+            const senderCanCall = row.sender_id === group?.owner || !!senderRole?.permissions.includes("voice_call");
+            const receiverCanCall = keys.userId === group?.owner || !!receiverRole?.permissions.includes("voice_call");
+            const allowed = ["reject", "end"].includes(p.op ?? "") || (senderCanCall && receiverCanCall);
+            if (group && !group.requested && group.members.includes(row.sender_id) && !contact.requested && allowed) {
+              void callRef.current?.handle(row.sender_id, p as never, row.sent_at);
+            }
+          } else if (!contact.requested) void callRef.current?.handle(row.sender_id, p as never, row.sent_at);
         } else if (p.t === "ginv") {
           const gid = String(p.gid ?? "");
           const me = keys.userId;
@@ -235,23 +252,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
             update((s) => ({ ...s, groups: s.groups.filter((g) => g.id !== gid), messages: s.messages.filter((m) => m.peer !== `g:${gid}`) }));
           } else {
             const ttl = TTLS.has(p.ttl ?? 0) ? (p.ttl ?? 0) : 0;
-            let avatar = ex?.avatar;
-            if (typeof p.avatar === "string") {
-              if (p.avatar === "") avatar = undefined;
-              else if (p.avatar.startsWith("data:image/jpeg;base64,") && p.avatar.length <= 60_000 && !(await dataUrlIsBlocked(p.avatar))) avatar = p.avatar;
+            const members = [...new Set(p.members)];
+            const rawRoles = Array.isArray(p.roles) ? p.roles.slice(0, 16) : [];
+            const roles = rawRoles.filter((r) =>
+              r && /^[a-z0-9_-]{1,32}$/.test(r.id) && typeof r.name === "string" && r.name.length <= 32 &&
+              Array.isArray(r.permissions) && r.permissions.length <= 8 &&
+              r.permissions.every((x) => ["view_audit", "send_messages", "voice_call"].includes(x)),
+            ).map((r) => r.id === "everyone" ? { id: "everyone", name: "@Everyone", permissions: [] } : r);
+            if (!roles.some((r) => r.id === "everyone")) roles.unshift({ id: "everyone", name: "@Everyone", permissions: [] });
+            const roleIds = new Set(roles.map((r) => r.id));
+            const memberRoles = Object.fromEntries(members.map((m) => {
+              const id = p.memberRoles?.[m];
+              return [m, id && roleIds.has(id) ? id : "everyone"];
+            }));
+            const autoRole = p.autoRole && roleIds.has(p.autoRole) ? p.autoRole : "everyone";
+            const audit = (p.auditAllowed === false ? [] : Array.isArray(p.audit) ? p.audit.slice(-200) : []).filter((a) =>
+              a && typeof a.id === "string" && typeof a.actor === "string" && typeof a.action === "string" &&
+              Number.isFinite(a.ts) && a.action.length <= 80 && (!a.target || a.target.length <= 100),
+            );
+            const description = typeof p.description === "string" ? p.description.slice(0, 500) : "";
+            const g: Group = {
+              id: gid, name: p.name.slice(0, 40), owner: ex?.owner ?? row.sender_id, members, ttl,
+              addedAt: ex?.addedAt ?? Date.now(), requested: ex ? ex.requested : !!contact.requested,
+              description,
+              roles,
+              memberRoles,
+              autoRole,
+              audit,
+            };
+            for (const [field, value, max] of [["avatar", p.av, 90_000], ["banner", p.bn, 130_000]] as const) {
+              if (typeof value !== "string") continue;
+              if (!value) g[field] = undefined;
+              else if (value.startsWith("data:image/jpeg;base64,") && value.length <= max && !(await dataUrlIsBlocked(value))) g[field] = value;
             }
-            const g: Group = { id: gid, name: p.name.slice(0, 40), owner: ex?.owner ?? row.sender_id, members: [...new Set(p.members)], ttl, addedAt: ex?.addedAt ?? Date.now(), requested: ex ? ex.requested : !!contact.requested, avatar };
             update((s) => ({ ...s, groups: ex ? s.groups.map((x) => (x.id === gid ? g : x)) : [...s.groups, g] }));
           }
         } else if (p.t === "gleave") {
           const gid = String(p.gid ?? "");
           const sid = row.sender_id;
-          update((s) => ({ ...s, groups: s.groups.map((g) => (g.id === gid ? { ...g, members: g.members.filter((m) => m !== sid) } : g)) }));
+          update((s) => ({ ...s, groups: s.groups.map((g) => {
+            if (g.id !== gid || !g.members.includes(sid)) return g;
+            return {
+              ...g,
+              members: g.members.filter((m) => m !== sid),
+              audit: g.owner === keys.userId ? [...(g.audit ?? []), { id: crypto.randomUUID(), actor: sid, action: "Saiu do grupo", ts: Date.now() }].slice(-200) : g.audit,
+            };
+          }) }));
         } else if ((p.t === "msg" || p.t === "gmsg") && typeof p.id === "string") {
           const thread = p.t === "gmsg" ? `g:${p.gid}` : row.sender_id;
           if (p.t === "gmsg") {
             const g = localRef.current!.groups.find((x) => x.id === p.gid);
             if (!g || !g.members.includes(row.sender_id)) throw new Error("não é membro");
+            const senderRole = g.roles?.find((r) => r.id === (g.memberRoles?.[row.sender_id] ?? "everyone"));
+            if (row.sender_id !== g.owner && !senderRole?.permissions.includes("send_messages")) throw new Error("cargo sem permissão para enviar");
           }
           if (localRef.current!.messages.some((m) => m.id === p.id && m.peer === thread && (m.from ?? m.peer) === row.sender_id)) throw new Error("duplicada");
           const ttl = TTLS.has(p.ttl ?? 0) ? (p.ttl ?? 0) : 0;
@@ -277,6 +330,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (typeof p.text === "string") msg.text = p.text.slice(0, 1000);
           }
           if (p.rt && typeof p.rt.id === "string" && typeof p.rt.text === "string") msg.reply = { id: p.rt.id, text: p.rt.text.slice(0, 120) };
+          if (p.t === "gmsg" && Array.isArray(p.mentions)) {
+            const members = localRef.current!.groups.find((g) => g.id === p.gid)?.members ?? [];
+            msg.mentions = [...new Set(p.mentions.filter((id) => typeof id === "string" && members.includes(id)))].slice(0, 20);
+          }
           update((s) => ({ ...s, messages: [...s.messages, msg] }));
         }
       } catch {
@@ -331,6 +388,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stopSession();
       const s = await startSession(keys);
       sessRef.current = s;
+      if (s.appNumber && localRef.current?.profile.appNumber !== s.appNumber) {
+        update((state) => ({ ...state, profile: { ...state.profile, appNumber: s.appNumber! } }));
+      }
       s.subscribe((r) => enqueue([r]), (ok) => { live.current = ok; if (ok) void poll(); });
       await poll();
       fails.current = 0;
@@ -346,7 +406,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       tick();
     },
-    [enqueue, poll, stopSession],
+    [enqueue, poll, stopSession, update],
   );
 
   // ---------- boot / expiração ----------
@@ -385,16 +445,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const createAccount = useCallback(
-    async (name: string, phone: string, pass: string) => {
+    async (name: string, pass: string) => {
       setBusy(true);
       setError(null);
       try {
-        const e164 = phone.trim() ? normalizePhone(phone) : undefined;
-        if (phone.trim() && !e164) throw new Error("Número de telefone inválido");
         const m = newMnemonic();
         const keys = await keysFromMnemonic(m);
         const state = emptyState(m, name.trim().slice(0, 40));
-        if (e164) state.profile.phone = e164;
         const handle = await createVault(pass, state);
         localRef.current = state;
         vaultRef.current = handle;
@@ -411,15 +468,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setLocal(null);
           throw e;
         }
-        if (e164) {
-          try {
-            const r = await apiLinkPhone(sessRef.current!.getJwt(), e164);
-            if (r.step === "done") update((s) => ({ ...s, profile: { ...s.profile, phoneVerified: !!r.verified } }));
-            else setNotice("Enviamos um código por SMS. Confirme seu número em Configurações → Meu perfil.");
-          } catch (e) {
-            setNotice(`Conta criada, mas o número não foi vinculado: ${errMsg(e)}`);
-          }
-        }
+        if (!localRef.current?.profile.appNumber) setNotice("Conta criada. O número exclusivo do app aparecerá após a configuração do servidor.");
         setOnb(m);
         setPhase("app");
       } catch (e) {
@@ -428,7 +477,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setBusy(false);
       }
     },
-    [beginSession, update],
+    [beginSession],
   );
 
   const restoreAccount = useCallback(
@@ -541,42 +590,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setContactTtl = useCallback((id: string, ttl: number) => update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === id ? { ...c, ttl } : c)) })), [update]);
   const setAutolock = useCallback((min: number) => update((s) => ({ ...s, settings: { ...s.settings, autolockMin: min } })), [update]);
 
-  const addContactByPhone = useCallback(
-    async (phoneRaw: string, alias: string) => {
-      const e164 = normalizePhone(phoneRaw);
-      if (!e164) throw new Error("Número inválido. Use DDD + número (ex.: 21 99999-0000)");
-      if (e164 === localRef.current?.profile.phone) throw new Error("Esse é o seu próprio número");
+  const addContactByNumber = useCallback(
+    async (rawNumber: string, alias: string) => {
+      const appNumber = normalizeAppNumber(rawNumber);
+      if (!appNumber) throw new Error("Número inválido. Use o formato 10259-5251");
+      if (appNumber === localRef.current?.profile.appNumber) throw new Error("Esse é o seu próprio número");
       const sess = sessRef.current;
       if (!sess) throw new Error("Sem conexão com o servidor");
-      const found = await lookupPhone(sess.getJwt(), e164);
-      if (!found) throw new Error("Esse número ainda não usa o SeuChatSeguro");
+      const found = await lookupAppNumber(sess.getJwt(), appNumber);
+      if (!found) throw new Error("Esse número não foi encontrado no SeuChatSeguro");
       if (found.userId === keysRef.current?.userId) throw new Error("Esse é o seu próprio número");
       const peer = await fetchIdentity(sess.client, found.userId);
       if (!peer) throw new Error("Contato indisponível");
       const exists = localRef.current!.contacts.find((c) => c.id === found.userId);
       if (exists) {
-        update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === found.userId ? { ...c, phone: e164, alias: alias || c.alias, requested: false } : c)) }));
+        update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === found.userId ? { ...c, appNumber, alias: alias || c.alias, requested: false } : c)) }));
         return;
       }
-      const c: Contact = { id: found.userId, alias: alias || e164, phone: e164, idKey: toB64(peer.idKey), spk: toB64(peer.spk), ttl: 0, addedAt: Date.now() };
+      const c: Contact = { id: found.userId, alias: alias || appNumber, appNumber, idKey: toB64(peer.idKey), spk: toB64(peer.spk), ttl: 0, addedAt: Date.now() };
       update((s) => ({ ...s, contacts: [...s.contacts, c] }));
-    },
-    [update],
-  );
-
-  const linkPhone = useCallback(
-    async (phoneRaw: string, code?: string) => {
-      const e164 = normalizePhone(phoneRaw);
-      if (!e164) throw new Error("Número de telefone inválido");
-      const sess = sessRef.current;
-      if (!sess) throw new Error("Sem conexão com o servidor");
-      const r = await apiLinkPhone(sess.getJwt(), e164, code);
-      if (r.step === "done") update((s) => ({
-        ...s,
-        profile: { ...s.profile, phone: e164, phoneVerified: !!r.verified },
-        settings: { ...s.settings, phoneMigrationRequired: false },
-      }));
-      return r;
     },
     [update],
   );
@@ -632,38 +664,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (peer: string) => {
       const pr = localRef.current?.profile;
       if (!pr) return;
-      await transmit(peer, JSON.stringify({ t: "prof", n: pr.name || undefined, bio: pr.bio ?? "", av: pr.avatar ?? "", bn: pr.banner ?? "" }));
+      await transmit(peer, JSON.stringify({ t: "prof", n: pr.name || undefined, an: pr.appNumber || undefined, av: pr.avatar ?? "", bn: pr.banner ?? "" }));
       update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === peer ? { ...c, profSent: true } : c)) }));
     },
     [transmit, update],
   );
 
-  const setProfileBio = useCallback(
-    (bio: string) => {
-      const clean = bio.trim().slice(0, 280);
-      update((s) => ({ ...s, profile: { ...s.profile, bio: clean || undefined } }));
-      for (const c of localRef.current?.contacts ?? []) if (!c.blocked && !c.requested) void sendProfile(c.id).catch(() => {});
-    },
-    [update, sendProfile],
-  );
-
   const sendBody = useCallback(
-    async (peer: string, kind: "text" | "image" | "audio", text: string | undefined, image: string | undefined, reply?: Msg, audio?: string, dur?: number) => {
+    async (peer: string, kind: "text" | "image" | "audio", text: string | undefined, image: string | undefined, reply?: Msg, audio?: string, dur?: number, mentions?: string[]) => {
       const me = keysRef.current!.userId;
       const isGroup = peer.startsWith("g:");
       const contact = isGroup ? undefined : localRef.current?.contacts.find((c) => c.id === peer);
       const group = isGroup ? localRef.current?.groups.find((g) => g.id === peer.slice(2)) : undefined;
       if (isGroup ? !group : !contact) throw new Error("Conversa não encontrada");
       if (contact?.blocked) throw new Error("Contato bloqueado");
+      if (group && me !== group.owner) {
+        const role = group.roles?.find((r) => r.id === (group.memberRoles?.[me] ?? "everyone"));
+        if (!role?.permissions.includes("send_messages")) throw new Error("Seu cargo não permite enviar mensagens neste grupo");
+      }
       const ttl = group ? group.ttl : contact!.ttl;
       const blocked = new Set((localRef.current?.contacts ?? []).filter((c) => c.blocked).map((c) => c.id));
       const targets = group ? group.members.filter((m) => m !== me && !blocked.has(m)) : [peer];
       if (!targets.length) throw new Error("Não há outros membros no grupo");
+      const validMentions = group ? [...new Set((mentions ?? []).filter((id) => group.members.includes(id)))].slice(0, 20) : [];
       const id = crypto.randomUUID();
       const ts = Date.now();
       const rt = reply ? { id: reply.id, text: (reply.text ?? (reply.kind === "audio" ? "Áudio" : "Imagem")).slice(0, 120) } : undefined;
-      const payload = JSON.stringify({ t: group ? "gmsg" : "msg", gid: group?.id, id, kind, text, image, audio, dur, ttl, ts, n: localRef.current?.profile.name || undefined, rt });
-      const m: Msg = { id, peer, from: me, dir: "out", kind, text, image, audio, dur, ts, ttl, reply: rt, pending: true };
+      const payload = JSON.stringify({ t: group ? "gmsg" : "msg", gid: group?.id, id, kind, text, image, audio, dur, ttl, ts, n: localRef.current?.profile.name || undefined, rt, mentions: validMentions });
+      const m: Msg = { id, peer, from: me, dir: "out", kind, text, image, audio, dur, ts, ttl, reply: rt, mentions: validMentions, pending: true };
       // Mostra a mensagem imediatamente; a criptografia e o relay seguem em segundo plano.
       update((s) => ({ ...s, messages: [...s.messages, m] }));
       try {
@@ -708,10 +736,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const broadcastGroup = useCallback(
     async (g: Group, also: string[] = []) => {
       const me = keysRef.current!.userId;
-      const body = (members: string[]) => JSON.stringify({ t: "ginv", gid: g.id, name: g.name, members, ttl: g.ttl, avatar: g.avatar ?? "", n: localRef.current?.profile.name || undefined });
+      const roles = g.roles?.length ? g.roles : [{ id: "everyone", name: "@Everyone", permissions: [] }];
+      const body = (target: string, members: string[]) => {
+        const roleId = g.memberRoles?.[target] ?? "everyone";
+        const role = roles.find((r) => r.id === roleId);
+        const canViewAudit = target === g.owner || !!role?.permissions.includes("view_audit");
+        return JSON.stringify({
+          t: "ginv", gid: g.id, name: g.name, members, ttl: g.ttl, n: localRef.current?.profile.name || undefined,
+          description: g.description ?? "", av: g.avatar ?? "", bn: g.banner ?? "",
+          roles, memberRoles: g.memberRoles ?? {}, autoRole: g.autoRole ?? "everyone",
+          auditAllowed: canViewAudit, audit: canViewAudit ? (g.audit ?? []).slice(-200) : [],
+        });
+      };
       await Promise.allSettled([
-        ...g.members.filter((m) => m !== me).map((m) => transmit(m, body(g.members))),
-        ...also.map((m) => transmit(m, body(g.members))), // removidos: recebem lista sem eles e apagam o grupo
+        ...g.members.filter((m) => m !== me).map((m) => transmit(m, body(m, g.members))),
+        ...also.map((m) => transmit(m, body(m, g.members))), // removidos recebem lista sem eles e apagam o grupo
       ]);
     },
     [transmit],
@@ -723,7 +762,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const list = [...new Set(members)].filter((m) => m !== me);
       if (!name.trim()) throw new Error("Dê um nome ao grupo");
       if (list.length < 1 || list.length > 19) throw new Error("Escolha de 1 a 19 contatos");
-      const g: Group = { id: crypto.randomUUID(), name: name.trim().slice(0, 40), owner: me, members: [me, ...list], ttl: 0, addedAt: Date.now() };
+      const all = [me, ...list];
+      const g: Group = {
+        id: crypto.randomUUID(), name: name.trim().slice(0, 40), owner: me, members: all, ttl: 0, addedAt: Date.now(),
+        roles: [{ id: "everyone", name: "@Everyone", permissions: [] }],
+        memberRoles: Object.fromEntries(all.map((id) => [id, "everyone"])),
+        autoRole: "everyone",
+        audit: [{ id: crypto.randomUUID(), actor: me, action: "Grupo criado", ts: Date.now() }],
+      };
       update((s) => ({ ...s, groups: [...s.groups, g] }));
       await broadcastGroup(g);
       return g.id;
@@ -732,18 +778,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateGroup = useCallback(
-    async (gid: string, patch: { name?: string; members?: string[]; ttl?: number; avatar?: string | null }) => {
+    async (gid: string, patch: Partial<Pick<Group, "name" | "members" | "ttl" | "description" | "avatar" | "banner" | "roles" | "memberRoles" | "autoRole">>) => {
       const me = keysRef.current!.userId;
       const g = localRef.current?.groups.find((x) => x.id === gid);
       if (!g || g.owner !== me) throw new Error("Só quem criou o grupo pode alterá-lo");
       const members = patch.members ? [me, ...new Set(patch.members.filter((m) => m !== me))] : g.members;
       if (members.length > 20) throw new Error("Máximo de 20 membros");
+      const roles = (patch.roles ?? g.roles ?? [{ id: "everyone", name: "@Everyone", permissions: [] }]).map((role) => ({
+        ...role,
+        name: role.id === "everyone" ? "@Everyone" : role.name.trim(),
+        permissions: role.id === "everyone" ? [] : [...new Set(role.permissions.filter((p) => ["view_audit", "send_messages", "voice_call"].includes(p)))],
+      }));
+      if (!roles.some((r) => r.id === "everyone")) throw new Error("@Everyone precisa continuar existindo");
+      if (roles.length > 16 || roles.some((r) => !/^[a-z0-9_-]{1,32}$/.test(r.id) || !r.name.trim() || r.name.length > 32)) throw new Error("Revise os cargos do grupo");
+      const autoRole = patch.autoRole ?? g.autoRole ?? "everyone";
+      if (!roles.some((r) => r.id === autoRole)) throw new Error("O cargo automático escolhido não existe");
+      const memberRoles: Record<string, string> = {};
+      for (const id of members) {
+        const prev = patch.memberRoles?.[id] ?? g.memberRoles?.[id];
+        memberRoles[id] = roles.some((r) => r.id === prev) ? prev! : autoRole;
+      }
+      const now = Date.now();
+      const changes: Array<{ action: string; target?: string }> = [];
+      if (patch.name !== undefined && patch.name.trim() !== g.name) changes.push({ action: "Nome do grupo alterado" });
+      if (patch.description !== undefined && patch.description !== g.description) changes.push({ action: "Descrição alterada" });
+      members.filter((id) => !g.members.includes(id)).forEach((id) => changes.push({ action: "Membro adicionado", target: id }));
+      g.members.filter((id) => !members.includes(id)).forEach((id) => changes.push({ action: "Membro removido", target: id }));
+      if (patch.roles !== undefined || patch.memberRoles !== undefined || patch.autoRole !== undefined) changes.push({ action: "Cargos e permissões atualizados" });
+      if (patch.avatar !== undefined || patch.banner !== undefined) changes.push({ action: "Imagem ou banner do grupo alterado" });
+      if (patch.ttl !== undefined && patch.ttl !== g.ttl) changes.push({ action: "Mensagens temporárias alteradas" });
+      if (!changes.length) changes.push({ action: "Configurações atualizadas" });
+      const audit: GroupAuditEntry[] = [
+        ...(g.audit ?? []),
+        ...changes.map((change) => ({ id: crypto.randomUUID(), actor: me, action: change.action, target: change.target, ts: now })),
+      ].slice(-200);
       const ng: Group = {
         ...g,
         name: (patch.name ?? g.name).trim().slice(0, 40) || g.name,
-        members,
-        ttl: patch.ttl ?? g.ttl,
-        avatar: patch.avatar === undefined ? g.avatar : patch.avatar ?? undefined,
+        description: patch.description === undefined ? g.description : patch.description.slice(0, 500),
+        avatar: patch.avatar === undefined ? g.avatar : patch.avatar || undefined,
+        banner: patch.banner === undefined ? g.banner : patch.banner || undefined,
+        members, ttl: patch.ttl ?? g.ttl,
+        roles, memberRoles, autoRole, audit,
       };
       update((s) => ({ ...s, groups: s.groups.map((x) => (x.id === gid ? ng : x)) }));
       await broadcastGroup(ng, g.members.filter((m) => !members.includes(m)));
@@ -765,11 +841,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setCallRelayOnly = useCallback((on: boolean) => update((s) => ({ ...s, settings: { ...s.settings, callRelayOnly: on } })), [update]);
 
   const sendText = useCallback(
-    async (peer: string, text: string, reply?: Msg) => {
+    async (peer: string, text: string, reply?: Msg, mentions?: string[]) => {
       const t = text.trim();
       if (!t) return;
       if (t.length > MAX_TEXT) throw new Error("Mensagem muito longa");
-      await sendBody(peer, "text", t, undefined, reply);
+      await sendBody(peer, "text", t, undefined, reply, undefined, undefined, mentions);
     },
     [sendBody],
   );
@@ -824,6 +900,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       async (peer, sig) => { await transmit(peer, JSON.stringify(sig)); },
       setCall,
       () => !!localRef.current?.settings.callRelayOnly,
+      async () => {
+        const session = sessRef.current;
+        if (!session) throw new Error("Sem conexão com o servidor");
+        return getTurnIceServers(session.getJwt());
+      },
+      (gid) => localRef.current?.groups.find((g) => g.id === gid)?.members ?? [],
+      () => keysRef.current?.userId ?? null,
     );
     callRef.current = eng;
     return () => { void eng.hangup(); };
@@ -833,6 +916,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const c = localRef.current?.contacts.find((x) => x.id === peer);
     if (!c || c.blocked || c.requested) throw new Error("Aceite o contato antes de ligar");
     await callRef.current!.start(peer, video);
+  }, []);
+  const startGroupCall = useCallback(async (gid: string, video: boolean) => {
+    const group = localRef.current?.groups.find((g) => g.id === gid);
+    const me = keysRef.current?.userId;
+    if (!group || group.requested || !me || !group.members.includes(me)) throw new Error("Grupo indisponível para chamadas");
+    const role = group.roles?.find((r) => r.id === (group.memberRoles?.[me] ?? "everyone"));
+    if (me !== group.owner && !role?.permissions.includes("voice_call")) throw new Error("Seu cargo não permite iniciar chamadas em grupo");
+    const peers = group.members.filter((id) => {
+      if (id === me || localRef.current?.contacts.find((c) => c.id === id)?.blocked) return false;
+      const memberRole = group.roles?.find((r) => r.id === (group.memberRoles?.[id] ?? "everyone"));
+      return id === group.owner || !!memberRole?.permissions.includes("voice_call");
+    });
+    await callRef.current!.startGroup(gid, peers, video);
   }, []);
   const acceptCall = useCallback(() => callRef.current!.accept(), []);
   const rejectCall = useCallback(() => callRef.current!.reject(), []);
@@ -877,16 +973,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       phase, local, userId, busy, error, notice, online, onboardingMnemonic,
       clearOnboarding: () => setOnb(null),
       clearNotice: () => setNotice(null),
-      createAccount, linkPhone, addContactByPhone, setProfileName, setProfileBio, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+      createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl,
       sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
-      call, startCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
+      call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
-    [phase, local, userId, busy, error, notice, online, onboardingMnemonic, createAccount, linkPhone, addContactByPhone, setProfileName, setProfileBio, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+    [phase, local, userId, busy, error, notice, online, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
-      call, startCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
+      call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
   );
 
   return <C.Provider value={value}>{children}</C.Provider>;

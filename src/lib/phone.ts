@@ -16,3 +16,15 @@ export function formatPhone(e164: string): string {
   const m = /^\+55(\d{2})(9?\d{4})(\d{4})$/.exec(e164);
   return m ? `+55 (${m[1]}) ${m[2]}-${m[3]}` : e164;
 }
+
+/** Número interno, sem telefone/SMS: 9 dígitos exibidos como 10259-5251. */
+export function normalizeAppNumber(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  if (!/^[1-9]\d{8}$/.test(digits)) return null;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+export function formatAppNumber(value?: string): string {
+  if (!value) return "";
+  return normalizeAppNumber(value) ?? value;
+}

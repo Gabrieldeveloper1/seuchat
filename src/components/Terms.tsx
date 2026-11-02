@@ -24,7 +24,7 @@ export default function Terms({ onClose }: { onClose: () => void }) {
         </p>
         <h3>Seus dados</h3>
         <p>
-          Não pedimos e-mail. O telefone é opcional: se você informar, guardamos apenas um código irreversível (HMAC) dele para outras pessoas te acharem pelo número. Suas mensagens são cifradas de ponta a ponta: o servidor guarda apenas texto
+          Não pedimos e-mail nem telefone. O app gera um identificador exclusivo no formato 10259-5251; o servidor guarda a associação desse identificador à sua identidade pública para permitir que outras pessoas encontrem sua conta. A busca tem limite de tentativas. Suas mensagens são cifradas de ponta a ponta: o servidor guarda apenas texto
           cifrado até a entrega e o apaga em seguida (no máximo 30 dias se você ficar offline). O histórico fica somente neste
           aparelho, cifrado com sua senha. Se você perder a senha e a frase de recuperação, não é possível recuperar a conta.
           Para excluir tudo, use Configurações → Excluir conta.

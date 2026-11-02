@@ -2,21 +2,19 @@
 
 Mensageiro web privado (E2EE) com Supabase. React + TypeScript + Vite. Fonte **Inter** local e ícones **SVG** inline.
 
-> **Status:** visual/navegação/chamadas atualizados (tema Violeta Real, navegação mobile, chamada estilo Instagram, erros de servidor tratados). O código foi validado só por checagem de sintaxe: rode `npm install && npm run build && npm test` e corrija o que aparecer antes de publicar.
+> **Status:** app web com identificadores próprios, grupos com cargos, menções e chamadas em malha. TURN e lista assinada de hashes precisam ser configurados antes de publicar recursos que dependem deles.
 
 ## 1. Configurar o Supabase
 1. Crie um projeto em supabase.com.
-2. Rode `supabase/migrations/001_schema.sql` e depois `002_identity_lookup_realtime.sql` (SQL Editor ou `supabase db push`).
+2. Rode `supabase/migrations/001_schema.sql`, `002_identity_lookup_realtime.sql` e `005_app_number_directory.sql` (SQL Editor ou `supabase db push`).
 3. `npm install && npm run keys` e copie os valores gerados.
 4. Defina os segredos das Edge Functions:
    ```
    supabase secrets set JWT_SECRET=<JWT Secret do projeto> FRANKING_SERVER_KEY=<...> MODERATION_PUBKEY=<...>
    ```
    `JWT_SECRET` precisa ser **o mesmo JWT Secret do projeto** (Project Settings → API), senão a RLS não aceita o token.
-5. Rode também `003_phone_directory.sql` e defina `PHONE_PEPPER` (`openssl rand -base64 32`).
-   Para verificar números por SMS configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` e `TWILIO_VERIFY_SID`.
-   Só para testes, sem SMS: `ALLOW_UNVERIFIED_PHONES=true` (qualquer pessoa consegue reivindicar qualquer número; não use em produção).
-6. Publique as funções: `supabase functions deploy register login send-message report-verify delete-account phone-link phone-lookup`.
+5. Para ocultar IP nas chamadas, configure um TURN compatível com credenciais REST (por exemplo, Coturn com `use-auth-secret`) e defina no Supabase `TURN_URL` e `TURN_SHARED_SECRET`. Gere um segredo forte (ex.: `openssl rand -hex 32`) e mantenha-o apenas no servidor.
+6. Publique as funções: `supabase functions deploy register login send-message report-verify delete-account app-number app-number-lookup turn-credentials`. `phone-link` e `phone-lookup` são legadas e não são usadas pelo app.
 
 ## 2. Rodar o site
 ```
@@ -31,7 +29,7 @@ npm run build                # gera dist/
 ## 2.1 Publicar na Vercel
 1. Suba o projeto no GitHub (o `.env` **não** vai: já está no `.gitignore`).
 2. Vercel → *Add New → Project* → importe o repositório. O `vercel.json` já define framework Vite, `dist/`, rotas e headers de segurança/cache (substitui o antigo `public/_headers`, que a Vercel não lê).
-3. Em *Settings → Environment Variables* cadastre (Production e Preview): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_BLOCKLIST_PUBKEY`, `VITE_REQUIRE_BLOCKLIST`, `VITE_CONTACT_EMAIL` e, se usar, `VITE_TURN_URL/USER/PASS`. Depois de mudar variáveis, faça *Redeploy* (elas entram no build).
+3. Em *Settings → Environment Variables* cadastre (Production e Preview): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_BLOCKLIST_PUBKEY`, `VITE_REQUIRE_BLOCKLIST=true`, `VITE_CONTACT_EMAIL` e `VITE_TURN_ENABLED=true` após configurar TURN no servidor. Não coloque segredo TURN em variável `VITE_*`: ela fica pública no bundle. Depois de mudar variáveis, faça *Redeploy*.
 4. No Supabase (Edge Functions → Secrets): `SITE_URL` = `https://seu-app.vercel.app` (sem barra final) e `ALLOWED_ORIGIN` = o mesmo endereço (hoje o padrão é `*`).
 5. Se usar domínio próprio do Supabase, troque `*.supabase.co` na `Content-Security-Policy` do `vercel.json`.
 6. HTTPS já vem ativo na Vercel, necessário para câmera, microfone e chamadas.
@@ -40,26 +38,24 @@ npm run build                # gera dist/
 Tudo vem de variáveis no topo de `src/styles/global.css` (`--accent`, `--accent-2`, `--grad` e as versões do tema escuro). Troque lá e atualize `theme_color` em `public/manifest.webmanifest`.
 
 ## 3. Como funciona
-- **Conta:** frase de 12 palavras → chaves Ed25519 (identidade) e X25519. O ID é o hash da chave pública. Sem e-mail. Telefone é opcional (só para te acharem pelo número). Login por desafio-assinatura; a função `login` emite o JWT.
+- **Conta:** frase de 12 palavras → chaves Ed25519 (identidade) e X25519. O ID técnico deriva da chave pública. O servidor gera um número interno exclusivo no formato `10259-5251`; não é telefone, não usa WhatsApp ou SMS. Requer a migration 005 e as funções `app-number` e `app-number-lookup`.
 - **Mensagens:** caixa selada (X25519) por mensagem, relay em `relay_messages`, **apagada do servidor assim que o destinatário confirma**; expira em 30 dias se não entregue.
 - **Histórico:** só no aparelho, IndexedDB cifrado (Argon2id + XChaCha20-Poly1305).
 - **Efêmeras:** o tempo conta a partir da leitura, nos dois lados.
 - **Denúncia:** message franking. O servidor verifica que a mensagem veio mesmo do remetente sem nunca ter lido o conteúdo; a evidência é guardada cifrada para a moderação (`npm run decrypt-evidence`). CSAM verificado bane o ID.
-- **Filtro de imagens:** hash perceptual (núcleo do PDQ) antes de enviar e ao receber, contra `public/blocklist.json` assinado (`scripts/sign-blocklist.mjs`). Com `VITE_REQUIRE_BLOCKLIST=true`, o envio de imagens fica desligado sem lista válida.
+- **Filtro de imagens:** hash perceptual (núcleo do PDQ) antes de enviar e ao receber, contra `public/blocklist.json` assinado (`scripts/sign-blocklist.mjs`). Fail-closed por padrão: imagem enviada ou recebida é bloqueada sem lista assinada válida. Obtenha autorização e dados de uma organização provedora; não use listas inventadas.
 
 ## 3.1 Recursos novos
 - **Áudio:** gravação de voz (até 45 s, Opus 16 kbps) enviada como mensagem selada; entra na denúncia como qualquer mensagem.
-- **Chamadas de voz/vídeo e tela:** WebRTC; o SDP viaja dentro das mensagens seladas (fingerprint DTLS autenticado). Exige HTTPS. Configure TURN (`VITE_TURN_*` em `.env.example`) para funcionar em todas as redes; sem TURN, quem está na chamada vê o IP do outro. Compartilhar tela só funciona em navegador de computador (Chrome/Edge/Firefox): navegadores de celular não oferecem essa função. No celular, a chamada oferece câmera frontal/traseira; compartilhar tela no Android exige empacotar com Capacitor e um plugin de MediaProjection.
-- **Grupos:** até 20 membros; cada mensagem é cifrada separadamente para cada membro (fan-out). Só o criador altera nome, membros e autodestruição.
+- **Chamadas de voz/vídeo e tela:** WebRTC; sinalização dentro das mensagens seladas. Chamadas de grupo em malha suportam até 5 participantes; cada par cria uma conexão direta/relay, consumindo mais banda e CPU que um SFU. Para esconder seu IP, configure `TURN_URL` + `TURN_SHARED_SECRET`, publique `turn-credentials` e ative `VITE_TURN_ENABLED=true`; o modo relay-only falha fechado se o TURN não puder ser alcançado. Todos os participantes devem habilitar relay-only para ocultar os próprios endereços. Compartilhar tela só funciona em navegadores compatíveis.
+- **Grupos:** até 20 membros; cada mensagem é cifrada individualmente. Há descrição, imagem/banner, menções, cargos, cargo automático e auditoria. `@Everyone` inicia sem permissões especiais; o dono pode criar cargos e atribuir permissão de envio, chamadas e visualização da auditoria. O dono é o único que altera a configuração.
 - **QR code / link de convite:** Novo contato → QR code (gerar e escanear) ou link `#/add?id=...`.
-- **Perfil:** nome, bio de até 280 caracteres, foto e banner; a bio e as imagens são compartilhadas apenas com contatos aceitos, e as imagens passam pelo filtro de hashes.
-- **Foto de grupo:** o criador pode definir/remover a imagem do grupo; ela é enviada cifrada aos membros.
-- **Emojis:** seletor com catálogo Unicode completo, pesquisa, categorias e variações de tom de pele.
+- **Foto de perfil e banner:** recortados no aparelho, passam pelo filtro de hashes e vão só para contatos aceitos.
 
 ## 4. Limites conhecidos (leia antes de publicar)
-- **Grupos:** a lista de membros é mantida por cada aparelho; não há prova criptográfica de quem é o dono além do primeiro convite. Sem confirmação de leitura em grupos. Sem chamadas em grupo.
+- **Grupos:** a lista e a configuração são sincronizadas por convites assinados do dono, mas não há autoridade central para impedir um cliente malicioso de falsificar estado local. A auditoria é uma trilha de eventos de aplicativo, não prova forense. Sem confirmação de leitura em grupos.
 - **Áudio** não passa por filtro automático (só as imagens passam).
-- **Telefone:** sem SMS configurado o número não é verificado. A busca por número permite descobrir quem usa o app (limitada a 30 buscas/hora por usuário); a LGPD passa a valer para o dado de telefone.
+- **Número interno:** a busca é limitada a 30 tentativas por hora por usuário; o identificador não é um telefone pessoal.
 - **Sem Double Ratchet:** não há sigilo perfeito para frente (forward secrecy). Se a chave X25519 vazar, mensagens antigas ainda guardadas no servidor ficam expostas. Próximo passo: libsignal ou vodozemac.
 - **Prints:** a web não bloqueia capturas. Só há uma "cortina" quando a aba perde o foco. Bloqueio real: Android `FLAG_SECURE` ao empacotar com Capacitor; no iOS só dá para detectar.
 - **Lista de hashes:** `public/blocklist.json` vem vazio. Você precisa de acordo com NCMEC, IWF, Thorn ou similar. Use o algoritmo e o formato que o provedor exigir; esta implementação é compatível em conceito, não a de referência.

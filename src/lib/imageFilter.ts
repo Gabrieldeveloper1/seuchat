@@ -69,7 +69,8 @@ export function blocklistStatus() {
 
 /** Image sending is allowed only if a list is loaded, or REQUIRE_BLOCKLIST is off. */
 export function imageSendingAllowed(): boolean {
-  const required = import.meta.env.VITE_REQUIRE_BLOCKLIST === "true";
+  // Fail closed by default: development can explicitly opt out with "false".
+  const required = import.meta.env.VITE_REQUIRE_BLOCKLIST !== "false";
   return !required || status === "ok";
 }
 
@@ -166,6 +167,8 @@ export async function prepareImage(file: File): Promise<PrepareResult> {
 
 /** Verificação no recebimento (defesa em profundidade). true = bloqueada. */
 export async function dataUrlIsBlocked(dataUrl: string): Promise<boolean> {
+  const required = import.meta.env.VITE_REQUIRE_BLOCKLIST !== "false";
+  if (required && status !== "ok") return true;
   if (!list.length) return false;
   try {
     // decodifica o data URL localmente (fetch("data:") seria barrado pela CSP)

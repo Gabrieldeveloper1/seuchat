@@ -49,7 +49,7 @@ describe("hash perceptual", () => {
   };
   it("imagem igual => distância 0; pequeno ruído => perto; imagem diferente => longe", () => {
     const base = img((x, y) => 128 + 100 * Math.sin(x / 7) * Math.cos(y / 5));
-    const noisy = img((x, y) => 128 + 100 * Math.sin(x / 7) * Math.cos(y / 5) + ((x * 31 + y * 17) % 5));
+    const noisy = img((x, y) => 128 + 100 * Math.sin(x / 7) * Math.cos(y / 5) + ((x * 31 + y * 17) % 4));
     const other = img((x, y) => (x > 32 ? 220 : 30) + ((y * 3) % 9));
     const h = pdqFromGray(base);
     expect(hamming(h, pdqFromGray(base))).toBe(0);

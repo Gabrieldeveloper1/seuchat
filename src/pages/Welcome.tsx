@@ -8,7 +8,6 @@ export default function Welcome() {
   const { createAccount, restoreAccount, busy, error } = useApp();
   const [tab, setTab] = useState<"new" | "restore">("new");
   const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
   const [pass, setPass] = useState("");
   const [words, setWords] = useState<string[]>(Array(12).fill(""));
   const [ok, setOk] = useState(false);
@@ -31,7 +30,7 @@ export default function Welcome() {
     if (tab === "restore" && words.some((w) => !w)) return setLocalErr("Preencha as 12 palavras");
     if (pass.length < 8) return setLocalErr("Use uma senha com pelo menos 8 caracteres");
     if (!ok) return setLocalErr("Confirme que tem 18 anos ou mais e aceita os Termos");
-    if (tab === "new") void createAccount(name, phone, pass);
+    if (tab === "new") void createAccount(name, pass);
     else void restoreAccount(words.join(" "), pass);
   }
 
@@ -42,7 +41,7 @@ export default function Welcome() {
         <h1>Conversas privadas de verdade, do jeito simples.</h1>
         <ul>
           <li><span><IconLock /></span> Criptografia de ponta a ponta em cada mensagem</li>
-          <li><span><IconPhone /></span> Encontre amigos pelo número de telefone</li>
+          <li><span><IconPhone /></span> Encontre amigos pelo seu número exclusivo do app</li>
           <li><span><IconZap /></span> Conta em 20 segundos: nome e senha, só isso</li>
         </ul>
       </section>
@@ -65,9 +64,7 @@ export default function Welcome() {
               <label className="field">Seu nome
                 <input className="input" value={name} maxLength={40} autoFocus onChange={(e) => setName(e.target.value)} autoComplete="nickname" placeholder="Como os amigos vão te ver" />
               </label>
-              <label className="field">Telefone <span className="muted small">(opcional, para te acharem pelo número)</span>
-                <input className="input" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" placeholder="(21) 99999-0000" />
-              </label>
+              <div className="banner" role="note">Ao criar a conta, o SeuChatSeguro gera um número exclusivo no formato 10259-5251. Não é um telefone e não precisa de SMS.</div>
             </>
           ) : (
             <div className="words" onPaste={(e) => { const t = e.clipboardData.getData("text"); if (t.trim().split(/\s+/).length > 1) { e.preventDefault(); setWord(0, t); } }}>

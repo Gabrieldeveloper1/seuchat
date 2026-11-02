@@ -5,13 +5,13 @@ export interface Contact {
   spk: string; // X25519 pública (base64)
   name?: string; // nome que o próprio contato escolheu
   phone?: string; // E.164, salvo só neste aparelho
+  appNumber?: string; // identificador público gerado pelo app (ex.: 10259-5251)
   blocked?: boolean;
   requested?: boolean; // contato desconhecido que escreveu primeiro
   ttl: number; // segundos após a leitura (0 = não apagar)
   addedAt: number;
   avatar?: string;
   banner?: string;
-  bio?: string;
   profSent?: boolean; // já enviamos nosso perfil a este contato
 }
 
@@ -23,7 +23,27 @@ export interface Group {
   ttl: number;
   addedAt: number;
   requested?: boolean;
+  description?: string;
   avatar?: string;
+  banner?: string;
+  roles?: GroupRole[];
+  memberRoles?: Record<string, string>;
+  autoRole?: string;
+  audit?: GroupAuditEntry[];
+}
+
+export interface GroupRole {
+  id: string;
+  name: string;
+  permissions: string[];
+}
+
+export interface GroupAuditEntry {
+  id: string;
+  actor: string;
+  action: string;
+  target?: string;
+  ts: number;
 }
 
 export interface FrankInfo {
@@ -53,6 +73,7 @@ export interface Msg {
   reported?: boolean;
   pending?: boolean; // envio otimista ainda aguardando confirmação do relay
   reply?: { id: string; text: string };
+  mentions?: string[];
 }
 
 export interface Settings {
@@ -66,9 +87,9 @@ export interface Settings {
 
 export interface Profile {
   name: string;
-  bio?: string;
   phone?: string;
   phoneVerified?: boolean;
+  appNumber?: string;
   avatar?: string;
   banner?: string;
 }

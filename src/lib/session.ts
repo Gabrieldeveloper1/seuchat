@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import sodium from "libsodium-wrappers-sumo";
-import { ApiError, SUPABASE_ANON, SUPABASE_URL, login, register } from "./api";
+import { ApiError, SUPABASE_ANON, SUPABASE_URL, getAppNumber, login, register } from "./api";
 import { userIdFromIdKey, type Keys } from "./crypto";
 import { hexToBytes, fromB64 } from "./util";
 
@@ -17,6 +17,7 @@ export interface RelayRow {
 
 export interface Session {
   userId: string;
+  appNumber: string | null;
   client: SupabaseClient;
   getJwt(): string;
   /** Faz login de novo (token expira em 1h) e atualiza o canal em tempo real. */
@@ -42,6 +43,10 @@ export async function startSession(keys: Keys): Promise<Session> {
       jwt = await login(keys);
     } else throw e;
   }
+
+  // Number allocation is a separate, idempotent operation so older installs keep
+  // working until migration 005 and the two Edge Functions are deployed.
+  const appNumber = await getAppNumber(jwt).catch(() => null);
 
   const client = createClient(SUPABASE_URL, SUPABASE_ANON, {
     accessToken: async () => jwt,
@@ -77,6 +82,7 @@ export async function startSession(keys: Keys): Promise<Session> {
 
   return {
     userId: keys.userId,
+    appNumber,
     client,
     getJwt: () => jwt,
     refresh,

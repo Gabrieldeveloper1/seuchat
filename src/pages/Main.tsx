@@ -3,15 +3,15 @@ import { useApp } from "../lib/store";
 import Chat from "../components/Chat";
 import Dialog from "../components/Dialog";
 import Terms from "../components/Terms";
-import { IconCamera, IconChat, IconCopy, IconLock, IconPhone, IconPlus, IconQr, IconSearch, IconSettings, IconShieldCheck, IconTrash, IconUser, IconUsers, IconWifiOff } from "../icons";
+import { IconCamera, IconChat, IconCopy, IconLock, IconPlus, IconQr, IconSearch, IconSettings, IconShieldCheck, IconTrash, IconUser, IconUsers, IconWifiOff } from "../icons";
 const QrDialog = lazy(() => import("../components/QrDialog"));
 import { profileImage } from "../lib/media";
 import { turnConfigured } from "../lib/callEngine";
 import { ID_RE } from "../lib/util";
 import Avatar from "../components/Avatar";
 import PasswordInput from "../components/PasswordInput";
-import { formatPhone } from "../lib/phone";
-import { blocklistStatus } from "../lib/imageFilter";
+import { formatAppNumber } from "../lib/phone";
+import { blocklistStatus, imageSendingAllowed } from "../lib/imageFilter";
 import { shortId } from "../lib/util";
 import type { Msg } from "../types";
 
@@ -25,8 +25,8 @@ const CATS: { v: ReportCat; t: string; d: string }[] = [
 ];
 
 function AddContact({ onClose }: { onClose: () => void }) {
-  const { addContact, addContactByPhone } = useApp();
-  const [mode, setMode] = useState<"phone" | "id">("phone");
+  const { addContact, addContactByNumber } = useApp();
+  const [mode, setMode] = useState<"number" | "id">("number");
   const [val, setVal] = useState("");
   const [alias, setAlias] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -34,7 +34,7 @@ function AddContact({ onClose }: { onClose: () => void }) {
   return (
     <Dialog title="Novo contato" onClose={onClose}>
       <div className="tabs">
-        <button type="button" className={mode === "phone" ? "on" : ""} onClick={() => { setMode("phone"); setVal(""); setErr(null); }}>Por telefone</button>
+        <button type="button" className={mode === "number" ? "on" : ""} onClick={() => { setMode("number"); setVal(""); setErr(null); }}>Número do app</button>
         <button type="button" className={mode === "id" ? "on" : ""} onClick={() => { setMode("id"); setVal(""); setErr(null); }}>Por ID</button>
       </div>
       <form style={{ display: "grid", gap: 12 }} onSubmit={async (e) => {
@@ -42,15 +42,15 @@ function AddContact({ onClose }: { onClose: () => void }) {
         setBusy(true);
         setErr(null);
         try {
-          if (mode === "phone") await addContactByPhone(val, alias.trim());
+          if (mode === "number") await addContactByNumber(val, alias.trim());
           else await addContact(val, alias.trim());
           onClose();
         } catch (x) { setErr(x instanceof Error ? x.message : "Erro"); } finally { setBusy(false); }
       }}>
-        {mode === "phone" ? (
-          <label className="field">Número do contato
-            <input className="input" type="tel" inputMode="tel" autoFocus value={val} onChange={(e) => setVal(e.target.value)} placeholder="(21) 99999-0000" autoComplete="off" />
-            <span className="muted small">Sem código do país, usamos +55 (Brasil). Para outro país, comece com +.</span>
+        {mode === "number" ? (
+          <label className="field">Número SeuChatSeguro
+            <input className="input" type="text" inputMode="numeric" autoFocus value={val} onChange={(e) => setVal(e.target.value)} placeholder="10259-5251" autoComplete="off" />
+            <span className="muted small">É um identificador exclusivo gerado pelo app, não um número de telefone.</span>
           </label>
         ) : (
           <label className="field">ID do contato
@@ -159,40 +159,6 @@ function ProfileImages() {
   );
 }
 
-function PhoneBlock() {
-  const { local, linkPhone } = useApp();
-  const [phone, setPhone] = useState(local?.profile.phone ?? "");
-  const [code, setCode] = useState("");
-  const [step, setStep] = useState<"edit" | "code">("edit");
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  async function go() {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const r = await linkPhone(phone, step === "code" ? code : undefined);
-      if (r.step === "code") { setStep("code"); setMsg("Código enviado por SMS."); }
-      else { setStep("edit"); setCode(""); setMsg(r.verified ? "Número verificado." : "Número vinculado (sem verificação por SMS)."); }
-    } catch (x) { setErr(x instanceof Error ? x.message : "Falha"); } finally { setBusy(false); }
-  }
-  const cur = local?.profile;
-  return (
-    <div className="kv">
-      <span className="muted small">Telefone {cur?.phone ? `· ${formatPhone(cur.phone)} ${cur.phoneVerified ? "✓ verificado" : "(não verificado)"}` : "(ninguém te acha pelo número)"}</span>
-      {step === "edit" ? (
-        <input className="input" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(21) 99999-0000" />
-      ) : (
-        <input className="input mono" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Código do SMS" autoFocus />
-      )}
-      {msg && <span className="ok">{msg}</span>}
-      {err && <div className="error">{err}</div>}
-      <button className="btn" disabled={busy || (step === "edit" ? !phone : !code)} onClick={() => void go()}>
-        <IconPhone /> {step === "edit" ? (cur?.phone ? "Trocar número" : "Vincular número") : "Confirmar código"}
-      </button>
-    </div>
-  );
-}
-
 function PasswordBlock() {
   const { changePassword } = useApp();
   const [o, setO] = useState("");
@@ -215,14 +181,17 @@ function PasswordBlock() {
 }
 
 function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: () => void }) {
-  const { userId, local, setCallRelayOnly, setAutolock, setTheme, setProfileName, setProfileBio, markBackupDone, lock, deleteAccount } = useApp();
+  const { userId, local, setCallRelayOnly, setAutolock, setTheme, setProfileName, markBackupDone, lock, deleteAccount } = useApp();
   const [showWords, setShowWords] = useState(false);
   const [name, setName] = useState(local?.profile.name ?? "");
-  const [bio, setBio] = useState(local?.profile.bio ?? "");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const f = blocklistStatus();
-  const fText = f.status === "ok" ? `ativo (${f.count} hashes)` : f.status === "invalid" ? "lista inválida (envio de imagens bloqueado)" : "lista não configurada (modo desenvolvimento)";
+  const fText = f.status === "ok"
+    ? `ativo (${f.count} hashes)`
+    : f.status === "invalid"
+      ? `lista inválida (${imageSendingAllowed() ? "modo de desenvolvimento" : "imagens bloqueadas"})`
+      : `lista não configurada (${imageSendingAllowed() ? "modo de desenvolvimento" : "imagens bloqueadas até configurar"})`;
   const theme = local?.settings.theme ?? "auto";
   return (
     <Dialog title="Configurações" onClose={onClose}>
@@ -232,14 +201,13 @@ function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: ()
         <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} onBlur={() => setProfileName(name)} />
       </div>
       <div className="kv">
-        <span className="muted small">Bio do perfil</span>
-        <textarea className="input bio-input" value={bio} maxLength={280} rows={3} placeholder="Conte um pouco sobre você" onChange={(e) => setBio(e.target.value)} />
-        <span className="muted small">{bio.length}/280 · visível para contatos aceitos</span>
-        <button className="btn" disabled={bio.trim() === (local?.profile.bio ?? "")} onClick={() => setProfileBio(bio)}>Salvar bio</button>
+        <span className="muted small">Seu número exclusivo SeuChatSeguro</span>
+        <span className="mono">{local?.profile.appNumber ? formatAppNumber(local.profile.appNumber) : "Aguardando configuração do servidor"}</span>
+        {local?.profile.appNumber && <button className="btn" onClick={() => void navigator.clipboard?.writeText(local.profile.appNumber!)}><IconCopy /> Copiar número</button>}
+        {!local?.profile.appNumber && <span className="muted small">Aplique a migration 005 e publique a Edge Function app-number para gerar o número.</span>}
       </div>
-      <PhoneBlock />
       <div className="kv">
-        <span className="muted small">Seu ID (alternativa ao telefone)</span>
+        <span className="muted small">Seu ID técnico (alternativa)</span>
         <span className="mono">{userId}</span>
         <button className="btn" onClick={() => userId && navigator.clipboard?.writeText(userId)}><IconCopy /> Copiar ID</button>
       </div>
@@ -278,7 +246,7 @@ function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: ()
       <button className="btn" onClick={() => { onClose(); lock(); }}><IconLock /> Bloquear agora</button>
       <button className="btn" onClick={onTerms}>Termos e Privacidade</button>
       <div className="kv" style={{ borderBottom: 0 }}>
-        <span className="muted small">Excluir conta: apaga suas chaves e telefone no servidor e todo o histórico deste aparelho. Digite EXCLUIR para confirmar.</span>
+        <span className="muted small">Excluir conta: apaga suas chaves e identificador do app no servidor e todo o histórico deste aparelho. Digite EXCLUIR para confirmar.</span>
         <input className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         {err && <div className="error">{err}</div>}
         <button className="btn danger" disabled={confirm !== "EXCLUIR"} onClick={async () => {
@@ -353,8 +321,8 @@ export default function Main() {
     const items = [
       ...(local?.contacts ?? []).map((c) => ({
         key: c.id, group: false, title: c.alias, seed: c.id, avatar: c.avatar, sort: last.get(c.id)?.ts ?? c.addedAt, unread: unread.get(c.id) ?? 0,
-        preview: c.blocked ? "Bloqueado" : c.requested ? "Pedido de conversa" : prev(last.get(c.id)) ?? (c.phone ? formatPhone(c.phone) : shortId(c.id)),
-        search: `${c.alias} ${c.name ?? ""} ${c.phone ?? ""}`,
+        preview: c.blocked ? "Bloqueado" : c.requested ? "Pedido de conversa" : prev(last.get(c.id)) ?? (c.appNumber ? formatAppNumber(c.appNumber) : shortId(c.id)),
+        search: `${c.alias} ${c.name ?? ""} ${c.appNumber ?? ""}`,
       })),
       ...(local?.groups ?? []).map((g) => ({
         key: `g:${g.id}`, group: true, title: g.name, seed: g.id, avatar: g.avatar, sort: last.get(`g:${g.id}`)?.ts ?? g.addedAt, unread: unread.get(`g:${g.id}`) ?? 0,
@@ -398,10 +366,10 @@ export default function Main() {
             <button className="btn" style={{ minHeight: 36 }} onClick={() => setDlg("settings")}>Ver</button>
           </div>
         )}
-        {local?.settings.phoneMigrationRequired && !local.profile.phone && (
+        {local && !local.profile.appNumber && (
           <div className="banner" style={{ margin: "0 12px 8px" }} role="status">
-            <span>Olá! Agora usamos números personalizados. Crie o seu para que outras pessoas encontrem você.</span>
-            <button className="btn" style={{ minHeight: 36 }} onClick={() => setDlg("settings")}>Migrar</button>
+            <span>Seu número exclusivo ainda não foi gerado. A configuração do servidor pode estar pendente.</span>
+            <button className="btn" style={{ minHeight: 36 }} onClick={() => setDlg("settings")}>Detalhes</button>
           </div>
         )}
         <div className="chips" role="tablist" aria-label="Filtrar">
@@ -414,7 +382,7 @@ export default function Main() {
           {threads.length === 0 && (
             <div className="empty">
               <span className="ico"><IconShieldCheck /></span>
-              <div><b style={{ color: "var(--text)", fontSize: 17 }}>Tudo pronto</b><br />Adicione alguém pelo telefone, QR code ou ID para começar uma conversa protegida.</div>
+              <div><b style={{ color: "var(--text)", fontSize: 17 }}>Tudo pronto</b><br />Adicione alguém pelo número do app, QR code ou ID para começar uma conversa protegida.</div>
               <button className="btn primary" onClick={() => setDlg("add")}><IconPlus /> Novo contato</button>
             </div>
           )}
@@ -431,7 +399,7 @@ export default function Main() {
         </div>
         <div className="me-bar">
           <Avatar name={me} seed={userId ?? "me"} size="sm" src={local?.profile.avatar} />
-          <div className="t"><b>{me}</b><span className="muted small">{local?.profile.phone ? formatPhone(local.profile.phone) : "Sem telefone vinculado"}</span></div>
+          <div className="t"><b>{me}</b><span className="muted small">{local?.profile.appNumber ? formatAppNumber(local.profile.appNumber) : "Número do app pendente"}</span></div>
           <button className="icon-btn" aria-label="Configurações" onClick={() => setDlg("settings")}><IconSettings /></button>
         </div>
 

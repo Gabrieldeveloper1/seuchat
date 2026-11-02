@@ -120,15 +120,26 @@ export async function deleteAccount(jwt: string): Promise<void> {
   await call("delete-account", {}, { jwt, timeoutMs: 30_000 });
 }
 
-export async function linkPhone(jwt: string, phone: string, code?: string): Promise<{ step: "code" | "done"; verified?: boolean }> {
-  return call("phone-link", { phone, code }, { jwt, timeoutMs: 25_000 });
+/** Returns the account's app-issued number, creating it once if necessary. */
+export async function getAppNumber(jwt: string): Promise<string> {
+  const result = await call<{ appNumber: string }>("app-number", {}, { jwt, retries: 0, timeoutMs: 5_000 });
+  if (!/^[1-9]\d{4}-\d{4}$/.test(result.appNumber)) throw new ApiError(502, "O servidor retornou um número inválido.");
+  return result.appNumber;
 }
 
-export async function lookupPhone(jwt: string, phone: string): Promise<{ userId: string; verified: boolean } | null> {
+export async function lookupAppNumber(jwt: string, appNumber: string): Promise<{ userId: string } | null> {
   try {
-    return await call("phone-lookup", { phone }, { jwt, retries: 2 });
+    return await call("app-number-lookup", { appNumber }, { jwt, retries: 1 });
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return null;
     throw e;
   }
+}
+
+export async function getTurnIceServers(jwt: string): Promise<RTCIceServer[]> {
+  const result = await call<{ iceServers: RTCIceServer[] }>("turn-credentials", {}, { jwt, retries: 1, timeoutMs: 12_000 });
+  if (!Array.isArray(result.iceServers) || !result.iceServers.length) {
+    throw new ApiError(503, "Servidor TURN não configurado.");
+  }
+  return result.iceServers;
 }

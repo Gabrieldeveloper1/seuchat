@@ -15,3 +15,9 @@ verify_jwt = false
 verify_jwt = false
 [functions.phone-lookup]
 verify_jwt = false
+[functions.app-number]
+verify_jwt = false
+[functions.app-number-lookup]
+verify_jwt = false
+[functions.turn-credentials]
+verify_jwt = false

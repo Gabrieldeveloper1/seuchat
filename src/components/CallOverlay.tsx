@@ -77,8 +77,9 @@ export default function CallOverlay() {
 
   if (call.phase === "idle") return null;
 
+  const group = call.groupId ? local?.groups.find((x) => x.id === call.groupId) : undefined;
   const c = local?.contacts.find((x) => x.id === call.peer);
-  const name = c?.alias ?? "Contato";
+  const name = group?.name ?? c?.alias ?? "Contato";
   const live = call.phase === "connected";
   const hasRemoteVideo = !!call.remote?.getVideoTracks().some((t) => t.readyState === "live" && !t.muted);
   const camOn = !!call.local?.getVideoTracks().some((t) => t.enabled && t.readyState === "live") && call.cam;
@@ -95,7 +96,12 @@ export default function CallOverlay() {
   };
 
   // O áudio do contato fica num elemento próprio e invisível: continua tocando mesmo minimizado.
-  const audio = <Vid stream={call.remote} muted={deaf} className="hidden-media" />;
+  const audio = (
+    <>
+      <Vid stream={call.remote} muted={deaf} className="hidden-media" />
+      {call.participants.map((p) => <Vid key={p.id} stream={p.stream} muted={deaf} className="hidden-media" />)}
+    </>
+  );
 
   if (mini && live) {
     return (
@@ -140,6 +146,25 @@ export default function CallOverlay() {
     </div>
   );
 
+  const groupTiles = call.participants.map((p) => {
+    const member = local?.contacts.find((x) => x.id === p.id);
+    const label = member?.alias ?? p.id.slice(0, 10);
+    const video = !!p.stream?.getVideoTracks().some((t) => t.readyState === "live" && !t.muted);
+    return (
+      <div className="tile" key={p.id}>
+        {bg(p.id, member?.avatar)}
+        {video ? <Vid stream={p.stream} muted /> : (
+          <div className="tile-id">
+            <Avatar name={label} seed={p.id} src={member?.avatar} />
+            <h2>{label}</h2>
+            <p>{p.status === "connected" ? "Conectado" : "Chamando…"}</p>
+          </div>
+        )}
+        {video && <div className="tile-label">{label}</div>}
+      </div>
+    );
+  });
+
   const meTile = (
     <div className="tile">
       {bg(userId ?? "me", myAvatar)}
@@ -160,7 +185,7 @@ export default function CallOverlay() {
   );
 
   return (
-    <div className="call" role="dialog" aria-label={`Chamada com ${name}`}>
+    <div className="call" role="dialog" aria-label={`${group ? "Chamada em grupo" : "Chamada com"} ${name}`}>
       {audio}
       <div className="call-top">
         {live ? <button className="icon-btn" aria-label="Minimizar chamada" onClick={() => setMini(true)}><IconChevronDown /></button> : <span style={{ width: 44 }} />}
@@ -168,9 +193,8 @@ export default function CallOverlay() {
         <button className="icon-btn" aria-label="Participantes" onClick={() => setSheet("people")}><IconUsers /></button>
       </div>
 
-      <div className={`call-tiles ${live ? "" : "solo"}`}>
-        {remoteTile}
-        {live && meTile}
+      <div className={`call-tiles ${call.groupId ? "group-call-tiles" : live ? "" : "solo"}`}>
+        {call.groupId ? <>{groupTiles}{call.local && meTile}</> : <>{remoteTile}{live && meTile}</>}
       </div>
 
       {err && <div className="error call-err" role="alert">{err}</div>}
@@ -230,12 +254,16 @@ export default function CallOverlay() {
         <div className="call-sheet-wrap" onMouseDown={(e) => e.target === e.currentTarget && setSheet(null)}>
           <div className="call-sheet" role="dialog" aria-label="Participantes">
             <div className="grab" />
-            <h3>Na chamada (2)</h3>
+            <h3>Na chamada ({call.groupId ? 1 + call.participants.length : 2})</h3>
             <div className="people">
               <div className="member"><Avatar name={myName} seed={userId ?? "me"} size="sm" src={myAvatar} /><span>{myName} (você)</span>{!call.mic && <IconMicOff />}</div>
-              <div className="member"><Avatar name={name} seed={call.peer ?? ""} size="sm" src={c?.avatar} /><span>{name}</span></div>
+              {call.groupId ? call.participants.map((p) => {
+                const member = local?.contacts.find((x) => x.id === p.id);
+                const label = member?.alias ?? p.id.slice(0, 10);
+                return <div className="member" key={p.id}><Avatar name={label} seed={p.id} size="sm" src={member?.avatar} /><span>{label}</span><small>{p.status === "connected" ? "Conectado" : "Chamando…"}</small></div>;
+              }) : <div className="member"><Avatar name={name} seed={call.peer ?? ""} size="sm" src={c?.avatar} /><span>{name}</span></div>}
             </div>
-            <p className="small" style={{ margin: 0, opacity: 0.65, textAlign: "center" }}>Chamadas em grupo ainda não são suportadas.</p>
+            {call.groupId && <p className="small" style={{ margin: 0, opacity: 0.65, textAlign: "center" }}>Chamada em grupo ponto a ponto: até 5 pessoas. O uso de TURN evita expor o IP entre participantes.</p>}
           </div>
         </div>
       )}
