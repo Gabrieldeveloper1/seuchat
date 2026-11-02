@@ -75,4 +75,3 @@ npm run build && npx cap add android && npx cap sync
 No Android, em `MainActivity.onCreate`: `getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);`
 
 Lojas: denúncia no app (já existe), bloqueio de usuário (já existe), exclusão de conta no app (já existe), Termos com tolerância zero (já existe), contato de suporte (`VITE_CONTACT_EMAIL`), classificação 17+/18+, declaração de criptografia (Apple) e Data Safety (Google).
-"# seuchat" 

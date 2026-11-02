@@ -13,10 +13,6 @@
     "decrypt-evidence": "node scripts/decrypt-evidence.mjs"
   },
   "dependencies": {
-    "@capacitor/android": "^8.6.0",
-    "@capacitor/cli": "^8.6.0",
-    "@capacitor/core": "^8.6.0",
-    "@capacitor/ios": "^8.6.0",
     "@fontsource/inter": "^5.1.0",
     "@scure/bip39": "^1.4.0",
     "@supabase/supabase-js": "^2.50.0",
