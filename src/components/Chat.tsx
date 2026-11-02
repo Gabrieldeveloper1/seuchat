@@ -1,6 +1,7 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+const EmojiPicker = lazy(() => import("./EmojiPicker"));
 import { useApp } from "../lib/store";
-import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconTrash, IconUser, IconVideo, IconX } from "../icons";
+import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconSmile, IconLoader, IconTrash, IconUser, IconVideo, IconX } from "../icons";
 import { TTL_OPTIONS, type Msg } from "../types";
 import { shortId } from "../lib/util";
 import { imageSendingAllowed } from "../lib/imageFilter";
@@ -244,6 +245,22 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
   const end = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const insertEmoji = useCallback((emoji: string) => {
+    const el = ta.current;
+    const start = el?.selectionStart ?? null;
+    const end = el?.selectionEnd ?? null;
+    setText((cur) => {
+      if (start === null || end === null) return cur + emoji;
+      return cur.slice(0, start) + emoji + cur.slice(end);
+    });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      const pos = (start ?? el.value.length) + emoji.length;
+      if (!matchMedia("(pointer: coarse)").matches) el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  }, []);
   const lastTypingSent = useRef(0);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 3000); return () => clearInterval(timer); }, []);
@@ -352,7 +369,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
       <div className="chat-head">
         <button className="icon-btn back" onClick={onBack} aria-label="Voltar para as conversas"><IconBack /></button>
         <button className="who-btn" onClick={() => setDlg(group ? "group" : "profile")} aria-label={`Abrir ${group ? "grupo" : "perfil"} de ${title}`}>
-          <Avatar name={title} seed={group?.id ?? contact!.id} size="sm" src={group?.avatar ?? contact?.avatar} group={!!group} />
+          <span className={`av-wrap ${isOnline ? "online" : ""}`}><Avatar name={title} seed={group?.id ?? contact!.id} size="sm" src={group?.avatar ?? contact?.avatar} group={!!group} /></span>
           <span className="t"><b>{title}</b><span className={`small ${isOnline || typers.length ? "presence-active" : "muted"}`}>{subtitle}</span></span>
         </button>
         {contact && !contact.blocked && !contact.requested && (
@@ -454,6 +471,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
           ))}
         </div>
       )}
+      {emojiOpen && <Suspense fallback={<div className="emoji-pop emoji-loading"><IconLoader className="spin" /> Carregando emojis…</div>}><EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} /></Suspense>}
       <div className="composer">
         {recSec !== null ? (
           <>
@@ -465,6 +483,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
           <>
             <input ref={file} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={(e) => pick(e.target.files?.[0])} />
             <button className="icon-btn" aria-label="Anexar imagem" disabled={sending || locked || !imageSendingAllowed()} title={imageSendingAllowed() ? "Anexar imagem" : "Envio de imagens desativado"} onClick={() => file.current?.click()}><IconAttach /></button>
+            <button className={`icon-btn emoji-toggle ${emojiOpen ? "on" : ""}`} data-emoji-toggle aria-label="Emojis" aria-expanded={emojiOpen} disabled={locked} onClick={() => setEmojiOpen((v) => !v)}><IconSmile /></button>
             <textarea ref={ta} className="input" rows={1} placeholder="Mensagem" value={text} disabled={locked} enterKeyHint="send" autoComplete="off" onChange={(e) => { const value = e.target.value; setText(value); if (value.trim() && Date.now() - lastTypingSent.current > 4000) { lastTypingSent.current = Date.now(); sendActivity(peer, "typing"); } }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse()) { e.preventDefault(); send(); } }} />
             {text.trim() ? (

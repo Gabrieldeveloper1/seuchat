@@ -6,7 +6,8 @@ import Mnemonic from "./pages/Mnemonic";
 import Main from "./pages/Main";
 const Moderation = lazy(() => import("./pages/Moderation"));
 import CallOverlay from "./components/CallOverlay";
-import { IconShieldCheck } from "./icons";
+import { Logo } from "./icons";
+import Splash from "./components/Splash";
 
 /** Proteção possível na web: cortina quando a aba perde o foco/fica oculta e bloqueio de impressão.
  *  A web NÃO consegue impedir capturas de tela; isso só existe no app nativo (Android FLAG_SECURE). */
@@ -82,8 +83,8 @@ export default function App() {
   useAutolock(app.local?.settings.autolockMin ?? 0, inApp && app.call.phase === "idle", app.lock);
 
   let body;
-  if (isMod) return <Suspense fallback={<div className="center"><span className="spinner" /></div>}><Moderation /></Suspense>;
-  if (app.phase === "boot") body = <div className="center" role="status" aria-label="Carregando"><span className="spinner" /></div>;
+  if (isMod) return <Suspense fallback={<Splash label="Abrindo moderação" />}><Moderation /></Suspense>;
+  if (app.phase === "boot") body = <Splash />;
   else if (app.phase === "welcome") body = <Welcome />;
   else if (app.phase === "locked") body = <Unlock />;
   else if (app.onboardingMnemonic) body = <Mnemonic />;
@@ -96,7 +97,7 @@ export default function App() {
       {curtain && (
         <div className="curtain" role="presentation">
           <div style={{ textAlign: "center", display: "grid", gap: 10, justifyItems: "center" }}>
-            <IconShieldCheck />
+            <Logo size={56} />
             <div>Conteúdo oculto por privacidade</div>
           </div>
         </div>

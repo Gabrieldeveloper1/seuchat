@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
-import { IconLock, IconPhone, IconShieldCheck, IconZap } from "../icons";
+import { IconLock, IconPhone, IconZap, Wordmark, IconLoader } from "../icons";
 import Terms from "../components/Terms";
 import PasswordInput from "../components/PasswordInput";
 
@@ -37,8 +37,9 @@ export default function Welcome() {
   return (
     <div className="auth">
       <section className="hero">
-        <div className="logo"><IconShieldCheck /> SeuChatSeguro</div>
-        <h1>Conversas privadas de verdade, do jeito simples.</h1>
+        <div className="logo"><Wordmark /></div>
+        <span className="hero-kicker">Mensageiro privado · Criptografia de ponta a ponta</span>
+        <h1>Privacidade com <em>classe</em>.<br />Conversas que pertencem só a você.</h1>
         <ul>
           <li><span><IconLock /></span> Criptografia de ponta a ponta em cada mensagem</li>
           <li><span><IconPhone /></span> Encontre amigos pelo seu número exclusivo do app</li>
@@ -87,7 +88,7 @@ export default function Welcome() {
           </label>
           {(localErr || error) && <div className="error" role="alert">{localErr || error}</div>}
           <button className="btn primary block" disabled={busy}>
-            {busy ? "Aguarde…" : tab === "new" ? "Criar conta" : "Restaurar conta"}
+            {busy ? <><IconLoader className="spin" /> Aguarde…</> : tab === "new" ? "Criar conta" : "Restaurar conta"}
           </button>
         </form>
       </section>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
-import { IconLock, IconShieldCheck } from "../icons";
+import { IconLock, Wordmark, IconLoader } from "../icons";
 import PasswordInput from "../components/PasswordInput";
 
 export default function Unlock() {
@@ -9,19 +9,20 @@ export default function Unlock() {
   return (
     <div className="auth">
       <section className="hero">
-        <div className="logo"><IconShieldCheck /> SeuChatSeguro</div>
+        <div className="logo"><Wordmark /></div>
+        <span className="hero-kicker">Sessão protegida</span>
         <h1>Bem-vindo de volta.</h1>
       </section>
       <section className="panel">
         <form className="card" onSubmit={(e) => { e.preventDefault(); void unlock(pass); }}>
-          <span className="avatar xl" style={{ background: "var(--grad)" }}><IconLock style={{ width: 32, height: 32 }} /></span>
+          <span className="lock-badge"><IconLock style={{ width: 30, height: 30 }} /></span>
           <div className="center-text">
             <h2>Digite sua senha</h2>
             <p className="muted small" style={{ margin: "4px 0 0" }}>Suas conversas ficam trancadas neste aparelho.</p>
           </div>
           <PasswordInput value={pass} onChange={setPass} autoComplete="current-password" autoFocus placeholder="Senha" />
           {error && <div className="error" role="alert">{error}</div>}
-          <button className="btn primary block" disabled={busy || !pass}>{busy ? "Abrindo…" : "Entrar"}</button>
+          <button className="btn primary block" disabled={busy || !pass}>{busy ? <><IconLoader className="spin" /> Abrindo…</> : <><IconLock /> Entrar</>}</button>
         </form>
       </section>
     </div>

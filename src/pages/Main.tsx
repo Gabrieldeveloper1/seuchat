@@ -3,7 +3,7 @@ import { useApp } from "../lib/store";
 import Chat from "../components/Chat";
 import Dialog from "../components/Dialog";
 import Terms from "../components/Terms";
-import { IconCamera, IconChat, IconCopy, IconLock, IconPlus, IconQr, IconSearch, IconSettings, IconShieldCheck, IconTrash, IconUser, IconUsers, IconWifiOff } from "../icons";
+import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconHash, IconImage, IconInfo, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo, Wordmark } from "../icons";
 const QrDialog = lazy(() => import("../components/QrDialog"));
 import { profileImage } from "../lib/media";
 import { turnConfigured } from "../lib/callEngine";
@@ -61,7 +61,7 @@ function AddContact({ onClose }: { onClose: () => void }) {
           <input className="input" value={alias} onChange={(e) => setAlias(e.target.value)} maxLength={40} />
         </label>
         {err && <div className="error" role="alert">{err}</div>}
-        <button className="btn primary" disabled={busy || !val}>{busy ? "Procurando…" : "Adicionar"}</button>
+        <button className="btn primary" disabled={busy || !val}>{busy ? <><IconLoader className="spin" /> Procurando…</> : <><IconPlus /> Adicionar</>}</button>
       </form>
     </Dialog>
   );
@@ -92,7 +92,7 @@ function ReportDialog({ msg, onClose, toast }: { msg: Msg; onClose: () => void; 
         try { await report(msg, cat); toast("Denúncia enviada e verificada. Contato bloqueado."); onClose(); }
         catch (x) { setErr(x instanceof Error ? x.message : "Falha ao denunciar"); }
         finally { setBusy(false); }
-      }}>{busy ? "Enviando…" : "Enviar denúncia"}</button>
+      }}>{busy ? <><IconLoader className="spin" /> Enviando…</> : "Enviar denúncia"}</button>
     </Dialog>
   );
 }
@@ -123,7 +123,7 @@ function NewGroup({ onClose, onCreated }: { onClose: () => void; onCreated: (gid
       <button className="btn primary" disabled={busy || !name.trim() || !sel.size} onClick={async () => {
         setBusy(true); setErr(null);
         try { const id = await createGroup(name, [...sel]); onCreated(`g:${id}`); onClose(); } catch (e) { setErr(e instanceof Error ? e.message : "Erro"); } finally { setBusy(false); }
-      }}>{busy ? "Criando…" : "Criar grupo"}</button>
+      }}>{busy ? <><IconLoader className="spin" /> Criando…</> : <><IconUsers /> Criar grupo</>}</button>
     </Dialog>
   );
 }
@@ -141,19 +141,20 @@ function ProfileImages() {
     catch (e) { setErr(e instanceof Error ? e.message : "Falha"); }
   }
   return (
-    <div className="kv">
+    <div className="profile-card">
       <div className="banner-img" style={pr?.banner ? { backgroundImage: `url(${pr.banner})` } : undefined}>
         <Avatar name={pr?.name || "Eu"} seed={userId ?? "me"} src={pr?.avatar} />
       </div>
       <input ref={av} type="file" accept="image/*" hidden onChange={(e) => { void pick(e.target.files?.[0], "avatar"); e.target.value = ""; }} />
       <input ref={bn} type="file" accept="image/*" hidden onChange={(e) => { void pick(e.target.files?.[0], "banner"); e.target.value = ""; }} />
+      <div className="profile-id"><b>{pr?.name || "Eu"}</b><span className="muted small">{pr?.appNumber ? formatAppNumber(pr.appNumber) : "Perfil privado"}</span></div>
       <div className="row-btns">
-        <button className="btn" onClick={() => av.current?.click()}><IconCamera /> Foto</button>
-        <button className="btn" onClick={() => bn.current?.click()}><IconCamera /> Banner</button>
+        <button className="btn sm" onClick={() => av.current?.click()}><IconCamera /> Foto</button>
+        <button className="btn sm" onClick={() => bn.current?.click()}><IconImage /> Banner</button>
         {pr?.avatar && <button className="btn ghost" onClick={() => setProfileImages(null, undefined)}>Remover foto</button>}
         {pr?.banner && <button className="btn ghost" onClick={() => setProfileImages(undefined, null)}>Remover banner</button>}
       </div>
-      <span className="muted small">Seus contatos aceitos veem a foto e o banner. As imagens passam pelo mesmo filtro de segurança.</span>
+      <span className="muted small">Seus contatos aceitos veem a foto e o banner.</span>
       {err && <div className="error">{err}</div>}
     </div>
   );
@@ -166,8 +167,8 @@ function PasswordBlock() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   return (
-    <div className="kv">
-      <span className="muted small">Trocar senha deste aparelho</span>
+    <div className="set-group">
+      <SetRow icon={<IconLock />} title="Senha deste aparelho" desc="Abre suas conversas aqui. Não é enviada a ninguém." />
       <PasswordInput value={o} onChange={setO} autoComplete="current-password" placeholder="Senha atual" />
       <PasswordInput value={n} onChange={setN} autoComplete="new-password" placeholder="Nova senha" meter />
       {msg && <span className="ok">{msg}</span>}
@@ -175,74 +176,139 @@ function PasswordBlock() {
       <button className="btn" disabled={!o || !n} onClick={async () => {
         setErr(null); setMsg(null);
         try { await changePassword(o, n); setMsg("Senha alterada."); setO(""); setN(""); } catch (x) { setErr(x instanceof Error ? x.message : "Falha"); }
-      }}>Alterar senha</button>
+      }}><IconKey /> Alterar senha</button>
     </div>
   );
 }
 
-function SettingsDialog({ onClose, onTerms }: { onClose: () => void; onTerms: () => void }) {
+type Sec = "perfil" | "privacidade" | "aparencia" | "conta";
+const SECS: { v: Sec; t: string; I: typeof IconUser }[] = [
+  { v: "perfil", t: "Perfil", I: IconUser },
+  { v: "privacidade", t: "Privacidade", I: IconShield },
+  { v: "aparencia", t: "Aparência", I: IconPalette },
+  { v: "conta", t: "Conta", I: IconKey },
+];
+
+function SetRow({ icon, title, desc, children }: { icon: React.ReactNode; title: string; desc?: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <div className="set-row">
+      <span className="set-ico">{icon}</span>
+      <span className="set-txt"><b>{title}</b>{desc && <span>{desc}</span>}</span>
+      {children && <span className="set-act">{children}</span>}
+    </div>
+  );
+}
+
+function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () => void; onTerms: () => void; initial?: Sec }) {
   const { userId, local, setCallRelayOnly, setAutolock, setTheme, setProfileName, markBackupDone, lock, deleteAccount } = useApp();
+  const [sec, setSec] = useState<Sec>(initial);
   const [showWords, setShowWords] = useState(false);
   const [name, setName] = useState(local?.profile.name ?? "");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
   const theme = local?.settings.theme ?? "auto";
+  const isLight = theme === "light";
+  const copy = (v: string, k: string) => { void navigator.clipboard?.writeText(v); setCopied(k); setTimeout(() => setCopied(null), 1600); };
   return (
-    <Dialog title="Configurações" onClose={onClose}>
-      <ProfileImages />
-      <div className="kv">
-        <span className="muted small">Seu nome</span>
-        <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} onBlur={() => setProfileName(name)} />
-      </div>
-      <div className="kv">
-        <span className="muted small">Seu número exclusivo SeuChatSeguro</span>
-        <span className="mono">{local?.profile.appNumber ? formatAppNumber(local.profile.appNumber) : "Aguardando configuração do servidor"}</span>
-        {local?.profile.appNumber && <button className="btn" onClick={() => void navigator.clipboard?.writeText(local.profile.appNumber!)}><IconCopy /> Copiar número</button>}
-        {!local?.profile.appNumber && <span className="muted small">Aplique a migration 005 e publique a Edge Function app-number para gerar o número.</span>}
-      </div>
-      <div className="kv">
-        <span className="muted small">Seu ID técnico (alternativa)</span>
-        <span className="mono">{userId}</span>
-        <button className="btn" onClick={() => userId && navigator.clipboard?.writeText(userId)}><IconCopy /> Copiar ID</button>
-      </div>
-      <div className="kv">
-        <span className="muted small">Aparência</span>
-        <div className="seg">
-          {(["auto", "light", "dark"] as const).map((t) => (
-            <button key={t} className={theme === t ? "on" : ""} onClick={() => setTheme(t)}>{t === "auto" ? "Automático" : t === "light" ? "Claro" : "Escuro"}</button>
+    <Dialog title="Ajustes" onClose={onClose} wide>
+      <div className="settings">
+        <nav className="set-nav" aria-label="Seções dos ajustes">
+          {SECS.map(({ v, t, I }) => (
+            <button key={v} className={sec === v ? "on" : ""} aria-current={sec === v ? "page" : undefined} onClick={() => setSec(v)}><I /><span>{t}</span><IconChevronRight className="chev" /></button>
           ))}
+          <div className="set-nav-foot">
+            <button onClick={() => { onClose(); lock(); }}><IconLock /><span>Bloquear agora</span></button>
+            <button onClick={onTerms}><IconFileText /><span>Termos e Privacidade</span></button>
+          </div>
+        </nav>
+        <div className="set-body" key={sec}>
+          {sec === "perfil" && (
+            <>
+              <ProfileImages />
+              <div className="set-group">
+                <label className="set-field"><span>Nome de exibição</span>
+                  <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} onBlur={() => setProfileName(name)} placeholder="Seu nome" />
+                </label>
+              </div>
+              <div className="set-group">
+                <SetRow icon={<IconHash />} title="Número SeuChatSeguro" desc={local?.profile.appNumber ? <span className="mono">{formatAppNumber(local.profile.appNumber)}</span> : "Aguardando configuração do servidor"}>
+                  {local?.profile.appNumber && <button className="btn sm" onClick={() => copy(local.profile.appNumber!, "num")}><IconCopy />{copied === "num" ? "Copiado" : "Copiar"}</button>}
+                </SetRow>
+                <SetRow icon={<IconFingerprint />} title="ID técnico" desc={<span className="mono">{userId}</span>}>
+                  <button className="btn sm" onClick={() => userId && copy(userId, "id")}><IconCopy />{copied === "id" ? "Copiado" : "Copiar"}</button>
+                </SetRow>
+              </div>
+            </>
+          )}
+          {sec === "privacidade" && (
+            <>
+              <div className="set-hero"><IconShieldCheck /><div><b>Suas conversas são cifradas de ponta a ponta</b><span>Só você e quem participa da conversa conseguem ler.</span></div></div>
+              <div className="set-group">
+                <SetRow icon={<IconClock />} title="Bloqueio automático" desc="Tranca o app após um período sem uso">
+                  <select className="input sm" value={local?.settings.autolockMin ?? 10} onChange={(e) => setAutolock(Number(e.target.value))}>
+                    {[1, 5, 10, 30, 0].map((m) => <option key={m} value={m}>{m ? `${m} min` : "Nunca"}</option>)}
+                  </select>
+                </SetRow>
+                {turnConfigured && (
+                  <SetRow icon={<IconShield />} title="Proteger meu IP nas chamadas" desc="Encaminha as chamadas pelo servidor seguro">
+                    <label className="switch"><input type="checkbox" checked={!!local?.settings.callRelayOnly} onChange={(e) => setCallRelayOnly(e.target.checked)} /><i /></label>
+                  </SetRow>
+                )}
+                <SetRow icon={<IconLock />} title="Bloquear agora" desc="Exige a senha para abrir de novo">
+                  <button className="btn sm" onClick={() => { onClose(); lock(); }}>Bloquear</button>
+                </SetRow>
+              </div>
+              <div className="set-group">
+                <SetRow icon={<IconBell />} title="Status e digitação" desc="Seus contatos veem quando você está online ou digitando, de forma aproximada." />
+                <SetRow icon={<IconImage />} title="Imagens" desc="Fotos passam por verificação de segurança antes do envio." />
+              </div>
+            </>
+          )}
+          {sec === "aparencia" && (
+            <>
+              <div className="theme-pick">
+                {([["dark", "Black Chique", "Preto profundo com detalhes dourados", IconMoon], ["light", "Marfim", "Claro, suave e elegante", IconSun]] as const).map(([v, t, d, I]) => {
+                  const on = v === "light" ? isLight : !isLight;
+                  return (
+                    <button key={v} className={`theme-card ${v} ${on ? "on" : ""}`} onClick={() => setTheme(v)} aria-pressed={on}>
+                      <span className="theme-prev"><i /><i /><i /></span>
+                      <span className="theme-t"><I /><b>{t}</b></span>
+                      <span className="muted small">{d}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="set-group">
+                <SetRow icon={<IconSparkle />} title="Animações" desc="Transições suaves são reduzidas automaticamente se o seu aparelho pedir menos movimento." />
+                <SetRow icon={<IconDevice />} title="Instalar como app" desc="No celular, use “Adicionar à tela inicial” do navegador para abrir em tela cheia." />
+              </div>
+            </>
+          )}
+          {sec === "conta" && (
+            <>
+              <PasswordBlock />
+              <div className="set-group">
+                <SetRow icon={<IconKey />} title="Frase de recuperação" desc={showWords ? <span className="mono">{local?.mnemonic}</span> : "12 palavras para restaurar a conta em outro aparelho"}>
+                  {!showWords ? <button className="btn sm" onClick={() => setShowWords(true)}>Mostrar</button>
+                    : !local?.settings.backupDone && <button className="btn sm primary" onClick={markBackupDone}>Já anotei</button>}
+                </SetRow>
+                <SetRow icon={<IconLogout />} title="Sair deste aparelho" desc="Bloqueia o app; suas conversas continuam guardadas aqui.">
+                  <button className="btn sm" onClick={() => { onClose(); lock(); }}>Sair</button>
+                </SetRow>
+              </div>
+              <div className="set-group danger-zone">
+                <SetRow icon={<IconTrash />} title="Excluir conta" desc="Apaga suas chaves e o identificador no servidor, além do histórico deste aparelho. Digite EXCLUIR para confirmar." />
+                <input className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="EXCLUIR" />
+                {err && <div className="error">{err}</div>}
+                <button className="btn danger block" disabled={confirm !== "EXCLUIR"} onClick={async () => {
+                  try { await deleteAccount(); } catch (x) { setErr(x instanceof Error ? x.message : "Falha ao excluir"); }
+                }}><IconTrash /> Excluir conta definitivamente</button>
+              </div>
+            </>
+          )}
+          <div className="set-ver"><Logo size={22} /> SeuChatSeguro · <IconInfo /> versão Black</div>
         </div>
-      </div>
-      <div className="kv">
-        <span className="muted small">Bloqueio automático</span>
-        <select className="input" value={local?.settings.autolockMin ?? 10} onChange={(e) => setAutolock(Number(e.target.value))}>
-          {[1, 5, 10, 30, 0].map((m) => <option key={m} value={m}>{m ? `Após ${m} min parado` : "Nunca"}</option>)}
-        </select>
-      </div>
-      {turnConfigured ? <label className="check kv">
-        <input type="checkbox" checked={!!local?.settings.callRelayOnly} onChange={(e) => setCallRelayOnly(e.target.checked)} />
-        <span>Proteger meu IP nas chamadas</span>
-      </label> : <div className="kv muted small">Chamadas podem expor seu IP aos participantes. Configure um servidor TURN para protegê-lo.</div>}
-      <PasswordBlock />
-      <div className="kv">
-        <span className="muted small">Frase de recuperação</span>
-        {showWords ? (
-          <>
-            <span className="mono">{local?.mnemonic}</span>
-            {!local?.settings.backupDone && <button className="btn" onClick={markBackupDone}>Já anotei</button>}
-          </>
-        ) : <button className="btn" onClick={() => setShowWords(true)}>Mostrar</button>}
-      </div>
-      {!imageSendingAllowed() && <div className="kv muted small">O envio de imagens está indisponível até que o filtro de segurança seja configurado.</div>}
-      <button className="btn" onClick={() => { onClose(); lock(); }}><IconLock /> Bloquear agora</button>
-      <button className="btn" onClick={onTerms}>Termos e Privacidade</button>
-      <div className="kv" style={{ borderBottom: 0 }}>
-        <span className="muted small">Excluir conta: apaga suas chaves e identificador do app no servidor e todo o histórico deste aparelho. Digite EXCLUIR para confirmar.</span>
-        <input className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-        {err && <div className="error">{err}</div>}
-        <button className="btn danger" disabled={confirm !== "EXCLUIR"} onClick={async () => {
-          try { await deleteAccount(); } catch (x) { setErr(x instanceof Error ? x.message : "Falha ao excluir"); }
-        }}><IconTrash /> Excluir conta</button>
       </div>
     </Dialog>
   );
@@ -260,6 +326,8 @@ export default function Main() {
   const [active, setActive] = useState<string | null>(hashKey);
   const [filter, setFilter] = useState<Filter>("all");
   const [dlg, setDlg] = useState<"add" | "settings" | "terms" | "group" | "qr" | null>(null);
+  const [setSecInit, setSetSecInit] = useState<Sec>("perfil");
+  const openSettings = (s: Sec = "perfil") => { setSetSecInit(s); setDlg("settings"); };
   const [rep, setRep] = useState<Msg | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -336,9 +404,22 @@ export default function Main() {
 
   return (
     <div className={`app ${activeKey ? "chat-open" : ""}`}>
+      <nav className="rail" aria-label="Menu">
+        <span className="rail-logo"><Logo size={40} /></span>
+        {([["all", "Conversas", IconChat], ["contacts", "Contatos", IconUser], ["groups", "Grupos", IconUsers]] as const).map(([v, t, I]) => (
+          <button key={v} className={`rail-btn ${filter === v ? "on" : ""}`} onClick={() => setFilter(v)} title={t} aria-label={t} aria-current={filter === v ? "page" : undefined}>
+            <I />{v === "all" && totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}<span className="rail-tip">{t}</span>
+          </button>
+        ))}
+        <button className="rail-btn" onClick={() => setDlg("qr")} title="QR code" aria-label="QR code"><IconQr /><span className="rail-tip">QR code</span></button>
+        <span className="rail-space" />
+        <button className="rail-btn" onClick={() => openSettings("aparencia")} title="Aparência" aria-label="Aparência"><IconPalette /><span className="rail-tip">Aparência</span></button>
+        <button className="rail-btn" onClick={() => openSettings()} title="Ajustes" aria-label="Ajustes"><IconSettings /><span className="rail-tip">Ajustes</span></button>
+        <button className="rail-me" onClick={() => openSettings()} aria-label="Meu perfil"><Avatar name={me} seed={userId ?? "me"} size="sm" src={local?.profile.avatar} /><i className={online ? "on" : ""} /></button>
+      </nav>
       <aside className="side">
         <div className="side-head">
-          <h2><IconShieldCheck /> SeuChatSeguro</h2>
+          <h2 className="side-brand"><Wordmark /></h2>
           <span>
             <button className="icon-btn" aria-label="QR code" title="QR code" onClick={() => setDlg("qr")}><IconQr /></button>
             <button className="icon-btn" aria-label="Novo grupo" title="Novo grupo" onClick={() => setDlg("group")}><IconUsers /></button>
@@ -354,30 +435,30 @@ export default function Main() {
         {local && !local.settings.backupDone && (
           <div className="banner" style={{ margin: "0 12px 8px" }}>
             <span>Anote sua frase de recuperação para não perder a conta.</span>
-            <button className="btn" style={{ minHeight: 36 }} onClick={() => setDlg("settings")}>Ver</button>
+            <button className="btn" style={{ minHeight: 36 }} onClick={() => openSettings("conta")}>Ver</button>
           </div>
         )}
         {local && !local.profile.appNumber && (
           <div className="banner" style={{ margin: "0 12px 8px" }} role="status">
             <span>Seu número exclusivo ainda não foi gerado. A configuração do servidor pode estar pendente.</span>
-            <button className="btn" style={{ minHeight: 36 }} onClick={() => setDlg("settings")}>Detalhes</button>
+            <button className="btn" style={{ minHeight: 36 }} onClick={() => openSettings()}>Detalhes</button>
           </div>
         )}
         <div className="chips" role="tablist" aria-label="Filtrar">
           {filters.map((f) => <button key={f.v} role="tab" aria-selected={filter === f.v} className={`chip ${filter === f.v ? "on" : ""}`} onClick={() => setFilter(f.v)}>{f.t}</button>)}
         </div>
-        {threads.length > 3 && (
+        {threads.length > 0 && (
           <div className="search"><IconSearch /><input className="input" placeholder="Buscar" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar conversa" /></div>
         )}
         <div className="list">
           {threads.length === 0 && (
             <div className="empty">
-              <span className="ico"><IconShieldCheck /></span>
+              <span className="ico"><Logo size={64} /></span>
               <div><b style={{ color: "var(--text)", fontSize: 17 }}>Tudo pronto</b><br />Adicione alguém pelo número do app, QR code ou ID para começar uma conversa protegida.</div>
               <button className="btn primary" onClick={() => setDlg("add")}><IconPlus /> Novo contato</button>
             </div>
           )}
-          {threads.length > 0 && shown.length === 0 && <div className="empty"><div>Nada encontrado.</div></div>}
+          {threads.length > 0 && shown.length === 0 && <div className="empty"><IconSearch style={{ width: 34, height: 34 }} /><div>Nada encontrado.</div></div>}
           {shown.map((t) => (
             <button key={t.key} className={`row ${activeKey === t.key ? "on" : ""}`} onClick={() => openChat(t.key)}>
               <Avatar name={t.title} seed={t.seed} src={t.avatar} group={t.group} />
@@ -391,18 +472,19 @@ export default function Main() {
         <div className="me-bar">
           <Avatar name={me} seed={userId ?? "me"} size="sm" src={local?.profile.avatar} />
           <div className="t"><b>{me}</b><span className="muted small">{local?.profile.appNumber ? formatAppNumber(local.profile.appNumber) : "Número do app pendente"}</span></div>
-          <button className="icon-btn" aria-label="Configurações" onClick={() => setDlg("settings")}><IconSettings /></button>
+          <button className="icon-btn" aria-label="Configurações" onClick={() => openSettings()}><IconSettings /></button>
         </div>
 
         {/* navegação inferior (celular) */}
         <button className="fab" aria-label="Novo contato" onClick={() => setDlg("add")}><IconPlus /></button>
-        <nav className="tabbar" aria-label="Navegação principal">
+        <nav className="tabbar" aria-label="Navegação principal" style={{ ["--i" as string]: filter === "all" ? 0 : filter === "contacts" ? 1 : 2 }}>
+          <span className="tab-ink" aria-hidden />
           <button className={`tab ${filter === "all" ? "on" : ""}`} onClick={() => setFilter("all")} aria-current={filter === "all" ? "page" : undefined}>
             <IconChat />Conversas{totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}
           </button>
           <button className={`tab ${filter === "contacts" ? "on" : ""}`} onClick={() => setFilter("contacts")} aria-current={filter === "contacts" ? "page" : undefined}><IconUser />Contatos</button>
           <button className={`tab ${filter === "groups" ? "on" : ""}`} onClick={() => setFilter("groups")} aria-current={filter === "groups" ? "page" : undefined}><IconUsers />Grupos</button>
-          <button className="tab" onClick={() => setDlg("settings")}><IconSettings />Ajustes</button>
+          <button className="tab" onClick={() => openSettings()}><IconSettings />Ajustes</button>
         </nav>
       </aside>
 
@@ -410,14 +492,14 @@ export default function Main() {
         {activeKey ? (
           <Chat key={activeKey} peer={activeKey} onBack={closeChat} onReport={setRep} toast={toast} />
         ) : (
-          <div className="placeholder"><IconLock /><div><b style={{ color: "var(--text)", fontSize: 17 }}>SeuChatSeguro</b><br />Selecione uma conversa.<br />Mensagens cifradas de ponta a ponta.</div></div>
+          <div className="placeholder welcome-pane"><Logo size={88} /><div><b>SeuChat<em>Seguro</em></b><span>Selecione uma conversa para começar.</span></div><div className="pane-feats"><span><IconLock /> Ponta a ponta</span><span><IconShieldCheck /> Sem rastreio</span><span><IconSparkle /> Sem anúncios</span></div></div>
         )}
       </main>
 
       {dlg === "add" && <AddContact onClose={() => setDlg(null)} />}
       {dlg === "qr" && <Suspense fallback={null}><QrDialog onClose={() => setDlg(null)} toast={toast} /></Suspense>}
       {dlg === "group" && <NewGroup onClose={() => setDlg(null)} onCreated={openChat} />}
-      {dlg === "settings" && <SettingsDialog onClose={() => setDlg(null)} onTerms={() => setDlg("terms")} />}
+      {dlg === "settings" && <SettingsDialog initial={setSecInit} onClose={() => setDlg(null)} onTerms={() => setDlg("terms")} />}
       {dlg === "terms" && <Terms onClose={() => setDlg(null)} />}
       {rep && <ReportDialog msg={rep} onClose={() => setRep(null)} toast={toast} />}
       {toastMsg && <div className="toast" role="status">{toastMsg}</div>}

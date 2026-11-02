@@ -12,3 +12,17 @@
 - O filtro de imagens não foi desativado: com a configuração segura padrão, é preciso configurar uma lista assinada válida para enviar e receber imagens, inclusive logos. Os textos de diagnóstico detalhados foram simplificados, mas a indisponibilidade continua sendo informada. Usar `VITE_REQUIRE_BLOCKLIST=false` desativa a exigência da lista e não equivale a um filtro operacional.
 - A presença e a digitação usam o relay cifrado existente e geram tráfego adicional; sinais temporários podem ficar na fila enquanto o destinatário estiver desconectado. Avalie limites e custos antes de usar em escala. A última atividade é aproximada, não uma prova definitiva de conexão.
 - Rode `npm ci`, `npm test` e `npm run build`; configure Supabase e as variáveis de ambiente conforme o README. Teste com duas contas e o servidor real, inclusive grupos, imagens, interrupção de rede e chamadas, antes de colocar em produção. Não foi possível validar esses fluxos ponta a ponta sem credenciais de um servidor.
+
+## Atualização "Black Chique"
+
+- **Nova identidade visual:** tema preto profundo com dourado champanhe (padrão) e tema claro "Marfim".
+- **Nova marca:** logo (balão de conversa com fechadura), favicon, ícones do app (192, 512, maskable e Apple) e banner `public/brand-banner.jpg`, usado como capa padrão de perfis e grupos.
+- **Tela de abertura animada:** aparece instantaneamente enquanto o app carrega (`index.html` + `src/components/Splash.tsx`).
+- **Menu do computador:** barra lateral fixa com ícones, dicas ao passar o mouse e foto de perfil com status.
+- **Menu do celular:** barra flutuante com efeito de vidro e indicador animado.
+- **Nova área de Ajustes:** seções Perfil, Privacidade, Aparência e Conta, com cartão de perfil, interruptores e escolha visual de tema.
+- **Emojis completos:** seletor com todo o catálogo Unicode (versão 18.0), busca, categorias, recentes e tom de pele. Emojis que o aparelho não consegue exibir são ocultados automaticamente. O seletor só é baixado quando aberto.
+- **Mais ícones SVG:** categorias de emojis, ajustes, botões de carregamento (ícone girando) e estados vazios.
+- **Botões novos:** dourado com brilho ao passar o mouse, variações compactas, de perigo e discretas.
+
+Nada no banco de dados ou nas Edge Functions precisa ser alterado por esta atualização.

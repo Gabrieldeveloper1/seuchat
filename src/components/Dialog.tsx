@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { IconX } from "../icons";
 
 /** Janela no computador; folha (bottom sheet) no celular. Esc fecha, o fundo não rola. */
-export default function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export default function Dialog({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -23,7 +23,7 @@ export default function Dialog({ title, onClose, children }: { title: string; on
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} style={{ outline: "none" }}>
+      <div className={`dialog ${wide ? "wide" : ""}`} ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} style={{ outline: "none" }}>
         <div className="grab" aria-hidden />
         <div className="dialog-head">
           <h2>{title}</h2>

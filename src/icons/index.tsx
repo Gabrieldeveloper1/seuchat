@@ -77,3 +77,46 @@ export const IconShare = make(<><rect x="8" y="3" width="13" height="13" rx="3.5
 export const IconPlay = make(<path d="m6 4 14 8-14 8z" fill="currentColor" />);
 export const IconCast = make(<><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6" /><path d="M2 20h.01" /></>);
 export const IconFlip = make(<><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></>);
+
+// ---- marca (Black Chique) ----
+let logoSeq = 0;
+export function Logo({ size = 36, framed = true, ...p }: P & { size?: number; framed?: boolean }) {
+  const id = `lg${++logoSeq}`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden focusable={false} {...p}>
+      <defs>
+        <linearGradient id={`${id}g`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f6e7b8" /><stop offset=".5" stopColor="#d4af5f" /><stop offset="1" stopColor="#9a7630" /></linearGradient>
+        <radialGradient id={`${id}b`} cx=".3" cy=".2" r="1"><stop offset="0" stopColor="#26231d" /><stop offset="1" stopColor="#070708" /></radialGradient>
+      </defs>
+      {framed && <><rect width="64" height="64" rx="16" fill={`url(#${id}b)`} /><rect x="1.5" y="1.5" width="61" height="61" rx="14.5" fill="none" stroke={`url(#${id}g)`} strokeOpacity=".55" /></>}
+      <path d="M18 16h28a7 7 0 0 1 7 7v15a7 7 0 0 1-7 7H31l-9 7v-7h-4a7 7 0 0 1-7-7V23a7 7 0 0 1 7-7z" fill="none" stroke={`url(#${id}g)`} strokeWidth="3.6" strokeLinejoin="round" />
+      <circle cx="32" cy="27.5" r="4.4" fill={`url(#${id}g)`} />
+      <path d="M30.2 30h3.6l1.4 7.5h-6.4z" fill={`url(#${id}g)`} />
+    </svg>
+  );
+}
+export function Wordmark() {
+  return <span className="wordmark"><Logo size={34} /><span>SeuChat<b>Seguro</b></span></span>;
+}
+export const IconPalette = make(<><circle cx="13.5" cy="6.5" r="1.2" fill="currentColor" /><circle cx="17.5" cy="10.5" r="1.2" fill="currentColor" /><circle cx="8.5" cy="7.5" r="1.2" fill="currentColor" /><circle cx="6.5" cy="12.5" r="1.2" fill="currentColor" /><path d="M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4A5.6 5.6 0 0 0 23 9.8C23 5.5 18.1 2 12 2z" /></>);
+export const IconLogout = make(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5M21 12H9" /></>);
+export const IconInfo = make(<><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>);
+// ---- emojis, carregamento e ajustes ----
+export const IconSmile = make(<><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><path d="M9 9h.01M15 9h.01" strokeWidth="2.6" /></>);
+export const IconHand = make(<><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8" /><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /></>);
+export const IconLeaf = make(<><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z" /><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" /></>);
+export const IconFood = make(<><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20" /><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7" /></>);
+export const IconPlane = make(<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />);
+export const IconBall = make(<><circle cx="12" cy="12" r="10" /><path d="M4.93 4.93c4.08 2.38 8.07 7.23 9.2 14.9M19.07 4.93c-4.08 2.38-8.07 7.23-9.2 14.9M2 12h20" /></>);
+export const IconBulb = make(<><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" /><path d="M9 18h6M10 22h4" /></>);
+export const IconHeart = make(<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z" />);
+export const IconFlagSolid = make(<><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="currentColor" fillOpacity=".15" /><path d="M4 22v-7" /></>);
+export const IconSparkle = make(<path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z" />);
+export const IconLoader = make(<><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></>);
+export const IconBell = make(<><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></>);
+export const IconFingerprint = make(<><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88M17.29 21.02c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M2 16h.01M21.8 16c.2-2 .131-5.354 0-6M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2M8.65 22c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2" /></>);
+export const IconHash = make(<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" />);
+export const IconFileText = make(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></>);
+export const IconChevronRight = make(<path d="m9 18 6-6-6-6" />);
+export const IconDevice = make(<><rect x="5" y="2" width="14" height="20" rx="2.5" /><path d="M12 18h.01" /></>);
+export const IconSun = make(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></>);
