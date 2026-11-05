@@ -36,5 +36,3 @@ verify_jwt = false
 verify_jwt = false
 [functions.appeal-decision]
 verify_jwt = false
-[functions.announcements]
-verify_jwt = false

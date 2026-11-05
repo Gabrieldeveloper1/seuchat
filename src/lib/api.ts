@@ -207,8 +207,3 @@ export async function caseRequest<T>(keys: Keys, op: "list" | "appeal" | "admin-
   const signature=sodium.crypto_sign_detached(cat(enc.encode("scs-case-v1:"),enc.encode(challenge),enc.encode(signed)),keys.idSec);
   return call<T>("case-desk", {userId:keys.userId,op,reportId,reason,note,challenge,signature:toB64(signature)}, {timeoutMs:20000});
 }
-
-export interface Announcement { id:string; title:string; body:string; created_at:string; expires_at:string }
-export async function announcements(jwt:string, op:"list"|"publish"|"revoke", payload:Record<string,unknown>={}):Promise<{announcements?:Announcement[];announcement?:Announcement}> {
- return call("announcements",{op,...payload},{jwt,timeoutMs:12000});
-}

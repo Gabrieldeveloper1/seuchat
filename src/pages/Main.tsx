@@ -5,7 +5,6 @@ import Chat from "../components/Chat";
 import NodiaChat from "../components/NodiaChat";
 import CaseDesk from "../components/CaseDesk";
 import CaseAdmin from "../components/CaseAdmin";
-import GlobalNotifications from "../components/GlobalNotifications";
 import Dialog from "../components/Dialog";
 import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconFlag, IconHash, IconImage, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo } from "../icons";
 const QrDialog = lazy(() => import("../components/QrDialog"));
@@ -560,7 +559,6 @@ export default function Main() {
       {dlg === "group" && <NewGroup onClose={() => setDlg(null)} onCreated={openChat} />}
       {dlg === "settings" && <SettingsDialog initial={setSecInit} onClose={() => setDlg(null)} onTerms={() => { location.hash = "#/terms"; }} />}
       {rep && <ReportDialog msg={rep} onClose={() => setRep(null)} onSubmitted={(id) => { setRep(null); openCases(id); }} />}
-      <GlobalNotifications />
       {toastMsg && <div className="toast" role="status"><span className="toast-mark" aria-hidden="true">✦</span><span>{toastMsg}</span><button type="button" onClick={()=>setToastMsg(null)} aria-label="Fechar notificação">×</button></div>}
     </div>
   );
