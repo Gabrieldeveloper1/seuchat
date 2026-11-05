@@ -8,7 +8,7 @@ import { normalizeAppNumber } from "./phone";
 import { createVault, openVault, saveVault, vaultExists, wipeVault, type VaultHandle } from "./vault";
 import {rewrapModerationVault,restoreModerationVault} from "./moderationVault";
 import { startSession, fetchIdentity, type RelayRow, type Session } from "./session";
-import { ApiError, getNews, type NewsItem, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers, getProfileSnapshot, putProfileSnapshot, askNodia, caseRequest, type ModerationCase } from "./api";
+import { ApiError, getNews, type NewsItem, announcements, type Announcement, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers, getProfileSnapshot, putProfileSnapshot, askNodia, caseRequest, type ModerationCase } from "./api";
 import { buildReport, frankMessage, verifyIncoming, type ReportPayload, type ReportProof } from "./franking";
 import { dataUrlIsBlocked, imageSendingAllowed, loadBlocklist, prepareImage } from "./imageFilter";
 import { decryptProfile, encryptProfile, profileFingerprint } from "./profileSync";
@@ -25,6 +25,7 @@ export function msgLabel(m: Pick<Msg, "kind" | "file">): string {
 export type Phase = "boot" | "welcome" | "locked" | "app";
 
 interface Ctx {
+  announce(op:"list"|"publish"|"revoke",payload?:Record<string,unknown>):Promise<{announcements?:Announcement[];announcement?:Announcement}>;
   nodiaBusy: boolean;
   nodiaDraft: string;
   profileSyncStatus: "idle" | "ready" | "unavailable";
@@ -177,6 +178,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const flush = useCallback(async () => {
     window.clearTimeout(saveTimer.current);
     if (vaultRef.current && localRef.current) await saveVault(vaultRef.current, localRef.current);
+  }, []);
+
+  const announce = useCallback(async (op:"list"|"publish"|"revoke", payload:Record<string,unknown>={}) => {
+    const sess=sessRef.current;if(!sess)throw new Error("Sessão indisponível.");
+    try {return await announcements(sess.getJwt(),op,payload)}
+    catch(e){if(!(e instanceof ApiError)||e.status!==401)throw e;await sess.refresh();if(sessRef.current!==sess)throw new Error("Sessão encerrada.");return announcements(sess.getJwt(),op,payload)}
   }, []);
 
   const [nodiaBusy, setNodiaBusy] = useState(false);
@@ -1319,7 +1326,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(
     () => ({
-      nodiaBusy, nodiaDraft, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic,
+      announce, nodiaBusy, nodiaDraft, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic,
       clearOnboarding: () => setOnb(null),
       clearNotice: () => setNotice(null),
       createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
@@ -1328,7 +1335,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
-    [nodiaBusy, nodiaDraft, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+    [announce, nodiaBusy, nodiaDraft, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, profileSyncStatus, sendReaction, sendText, sendImage, markRead, report, listCases, appealCase, adminCase, setAutolock, deleteAccount,
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],

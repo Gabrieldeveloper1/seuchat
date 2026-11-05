@@ -9,7 +9,7 @@ publicada por esta ferramenta.
    nem migrações já aplicadas sem antes conferir o histórico. O esquema base e as
    migrações 002, 004 e 005 precisam existir; vide supabase/migrations/.
 2. No SQL Editor, aplique as migrações ainda não aplicadas em ordem: 006, 007,
-   008, 009, 010, 011 e 012, disponíveis nesta pasta como SQL-006_... até SQL-012_...
+   008, 009, 010, 011, 012 e 013, disponíveis nesta pasta como SQL-006_... até SQL-013_...
    Leia-as e valide em ambiente de teste antes. Não misture uma versão nova do site
    com funções antigas de denúncia: a função antiga pode banir sem avaliar conteúdo.
 3. Em Edge Functions publique cada arquivo .ts desta pasta como função homônima.
@@ -21,6 +21,7 @@ publicada por esta ferramenta.
      supabase functions deploy nodia --no-verify-jwt
      supabase functions deploy attachments --no-verify-jwt
      supabase functions deploy case-desk --no-verify-jwt
+     supabase functions deploy announcements --no-verify-jwt
    Use --no-verify-jwt para todas as funções do projeto ou desative a verificação
    JWT do gateway no painel; cada função protege suas operações no próprio código,
    conforme supabase/config.toml. Não desative a validação do código da função.
@@ -79,3 +80,12 @@ a senha atual da conta. Nas próximas aberturas, use apenas a senha. A chave fic
 Guarde um backup da chave em local seguro: limpar o navegador ou perder a senha
 exige configurar o cofre novamente. Cada aparelho precisa de configuração própria.
 Não substitua MODERATION_PUBKEY sem um plano para as provas já armazenadas.
+
+COMUNICADOS GLOBAIS — ATUALIZAÇÃO
+Se as migrações anteriores já foram aplicadas, execute SQL-013_announcements.sql
+no SQL Editor. Publique announcements.ts como Edge Function announcements, com
+verificação JWT do gateway desativada, mantendo a validação própria do código e o
+JWT_SECRET existente. Atualize o site na Vercel. Teste publicação e retirada pela
+conta administrativa e confirme que uma conta comum não consegue fazê-las.
+Os comunicados aparecem no app aberto, não são push; veja as limitações e a
+política de retenção em LEIA-ANTES-DE-PUBLICAR.md.

@@ -1,0 +1,33 @@
+TERCEIROS — UIverse (licença MIT)
+
+Animações adaptadas e isoladas em src/styles/uiverse-loaders.css e
+src/components/NodiaLoader.tsx:
+- Copyright (c) 2026 dexter-st — https://uiverse.io/dexter-st/bright-lizard-8
+- Copyright (c) 2026 Nawsome — https://uiverse.io/Nawsome/wet-mayfly-23
+- Copyright (c) 2026 esraaabdel-kareem (Esraaelsayed) — https://uiverse.io/esraaabdel-kareem/bad-dragonfly-54
+
+Outras referências visuais, reinterpretadas no aplicativo:
+https://uiverse.io/seyed-mohsen-mousavi/wicked-chipmunk-81
+https://uiverse.io/Cobp/dangerous-dolphin-47
+https://uiverse.io/Javierrocadev/popular-earwig-75
+https://uiverse.io/Praashoo7/fat-horse-65
+https://uiverse.io/imtausef/ugly-wolverine-3
+https://uiverse.io/alexmaracinaru/perfect-panda-77
+https://uiverse.io/Darlley/lazy-seahorse-31
+
+MIT License
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

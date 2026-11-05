@@ -13,7 +13,7 @@ export default function CaseDesk({ id, onList, onOpen, onBack, onAssistant }: { 
   const [showAppeal,setShowAppeal]=useState(false);
   const [reason,setReason]=useState<"mistake" | "context" | "other">("mistake"); const [note,setNote]=useState(""); const [sending,setSending]=useState(false);
   const refresh=useCallback(async()=>{setError("");try{const r=await listCases();setCases(r);return r}catch{setError("Não foi possível consultar os casos. Verifique a conexão e tente novamente.");return null}finally{setBusy(false)}},[listCases]);
-  useEffect(()=>{setBusy(true);setShowAppeal(false);void refresh();},[id,refresh]);
+  useEffect(()=>{setBusy(id ? !cases.some(c=>c.id===id) : !cases.length);setShowAppeal(false);void refresh();},[id,refresh]);
   useEffect(()=>{const timer=window.setInterval(()=>{if(document.visibilityState==='visible')void refresh()},30000);return()=>clearInterval(timer)},[refresh]);
   const current=cases.find((c)=>c.id===id);
   const canAppeal=!!current && !current.appeal && ((current.role==='reporter' && current.status==='dismissed') || (current.role==='reported' && current.status==='actioned'));

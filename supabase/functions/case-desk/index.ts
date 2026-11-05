@@ -65,8 +65,7 @@ Deno.serve(async (req) => {
       }
       const [m,p,t]=await Promise.all([db.from("case_messages").select("id,sender_id,sender_role,body_ciphertext,created_at").eq("report_id",r.id).order("created_at",{ascending:false}).limit(100),db.from("case_attendance").select("active_until").eq("report_id",r.id).maybeSingle(),db.from("case_typing").select("typing_until").eq("report_id",r.id).maybeSingle()]);
       if(m.error || p.error || t.error) return fail(503,"indisponível");
-      const out=[];
-      for(const row of (m.data ?? []).reverse()) { const raw=fromPg(row.body_ciphertext);const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:raw.slice(0,12),additionalData:enc.encode(r.id+":"+row.sender_id)},key,raw.slice(12));out.push({id:row.id,role:row.sender_role,body:new TextDecoder().decode(plain),createdAt:row.created_at}); }
+      const out=await Promise.all((m.data ?? []).reverse().map(async (row: {id:string;sender_id:string;sender_role:string;body_ciphertext:string;created_at:string}) => { const raw=fromPg(row.body_ciphertext);const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:raw.slice(0,12),additionalData:enc.encode(r.id+":"+row.sender_id)},key,raw.slice(12));return {id:row.id,role:row.sender_role,body:new TextDecoder().decode(plain),createdAt:row.created_at}; }));
       return json({messages:out,adminActive:!!p.data && Date.parse(p.data.active_until)>Date.now(),adminTyping:!!t.data && Date.parse(t.data.typing_until)>Date.now()});
     } catch {return fail(503,"atendimento indisponível");}
   }

@@ -5,6 +5,7 @@ import Chat from "../components/Chat";
 import NodiaChat from "../components/NodiaChat";
 import CaseDesk from "../components/CaseDesk";
 import CaseAdmin from "../components/CaseAdmin";
+import GlobalNotifications from "../components/GlobalNotifications";
 import Dialog from "../components/Dialog";
 import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconFlag, IconHash, IconImage, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo } from "../icons";
 const QrDialog = lazy(() => import("../components/QrDialog"));
@@ -459,7 +460,7 @@ export default function Main() {
   const filters: { v: Filter; t: string }[] = [{ v: "all", t: "Conversas" }, { v: "contacts", t: "Contatos" }, { v: "groups", t: "Grupos" }];
 
   return (
-    <div className={`app ${activeKey || assistant || (adminDesk && userId === "mjii6xurvff2p33tl6vftzf2vu") || caseId !== null ? "chat-open" : ""}`}>
+    <div className={`app ${assistant ? "assistant-open" : ""} ${activeKey || assistant || (adminDesk && userId === "mjii6xurvff2p33tl6vftzf2vu") || caseId !== null ? "chat-open" : ""}`}>
       <nav className="rail" aria-label="Menu">
         <span className="rail-logo"><Logo size={40} /></span>
         {([["all", "Conversas", IconChat], ["contacts", "Contatos", IconUser], ["groups", "Grupos", IconUsers]] as const).map(([v, t, I]) => (
@@ -546,11 +547,12 @@ export default function Main() {
       </aside>
 
       <main className="main">
-        {adminDesk && userId === "mjii6xurvff2p33tl6vftzf2vu" ? <CaseAdmin onBack={() => {history.replaceState(null,"",location.pathname+location.search);setAdminDesk(false)}} /> : caseId !== null ? <CaseDesk id={caseId} onList={() => openCases()} onOpen={(id) => openCases(id)} onBack={closeCases} onAssistant={openAssistant} /> : assistant ? <NodiaChat onBack={closeAssistant} /> : activeKey ? (
+        {adminDesk && userId === "mjii6xurvff2p33tl6vftzf2vu" ? <CaseAdmin onBack={() => {history.replaceState(null,"",location.pathname+location.search);setAdminDesk(false)}} /> : caseId !== null ? <CaseDesk id={caseId} onList={() => openCases()} onOpen={(id) => openCases(id)} onBack={closeCases} onAssistant={openAssistant} /> : assistant ? null : activeKey ? (
           <Chat key={activeKey} peer={activeKey} onBack={closeChat} onAssistant={openAssistant} onReport={setRep} toast={toast} />
         ) : (
           <div className="placeholder welcome-pane"><IconChat style={{ width: 56, height: 56 }} /><div><b>Suas conversas</b><span>Selecione uma conversa para começar.</span></div><div className="pane-feats"><span><IconLock /> Ponta a ponta</span><span><IconShieldCheck /> Privacidade</span></div></div>
         )}
+        <div className="nodia-host" hidden={!assistant}><NodiaChat onBack={closeAssistant} /></div>
       </main>
 
       {dlg === "add" && <AddContact onClose={() => setDlg(null)} />}
@@ -558,7 +560,8 @@ export default function Main() {
       {dlg === "group" && <NewGroup onClose={() => setDlg(null)} onCreated={openChat} />}
       {dlg === "settings" && <SettingsDialog initial={setSecInit} onClose={() => setDlg(null)} onTerms={() => { location.hash = "#/terms"; }} />}
       {rep && <ReportDialog msg={rep} onClose={() => setRep(null)} onSubmitted={(id) => { setRep(null); openCases(id); }} />}
-      {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
+      <GlobalNotifications />
+      {toastMsg && <div className="toast" role="status"><span className="toast-mark" aria-hidden="true">✦</span><span>{toastMsg}</span><button type="button" onClick={()=>setToastMsg(null)} aria-label="Fechar notificação">×</button></div>}
     </div>
   );
 }

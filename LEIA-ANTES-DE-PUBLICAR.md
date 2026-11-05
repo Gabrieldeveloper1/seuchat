@@ -27,6 +27,16 @@ Esta entrega contém o código-fonte atualizado. Ela **não foi publicada** nem 
 ## Créditos dos emojis
 Gráficos Twemoji por Twitter, Inc. e outros colaboradores, licenciados sob CC BY 4.0: https://github.com/jdecked/twemoji/blob/v15.0.2/LICENSE-GRAPHICS. Dados e montagem derivados de emoji-datasource por Cal Henderson, licença MIT em `public/emoji/LICENSE-DATA.txt`. As imagens foram recortadas e organizadas em folhas WebP por categoria.
 
+## Comunicados globais e efeitos visuais — nova atualização
+
+Esta atualização não foi implantada. Faça backup e valide primeiro em ambiente de testes. Se as migrações anteriores já estiverem aplicadas, execute apenas `supabase-painel/SQL-013_announcements.sql` no SQL Editor. Crie ou atualize a Edge Function `announcements` com `supabase-painel/announcements.ts`. Desative a verificação JWT do gateway **apenas conforme o padrão deste projeto**: a função verifica o JWT próprio e a identidade no servidor. Mantenha o `JWT_SECRET` existente, igual ao do login; não o altere sem plano de migração. Publique também o novo site na Vercel e teste com uma conta administradora e outra comum. Usuários comuns não devem conseguir publicar ou revogar; contas banidas não têm acesso. Revise as permissões reais e a segurança antes de produção.
+
+Na conta administradora, abra **Central do administrador → Comunicados globais**. Os avisos aceitam título, mensagem e duração de 1 hora, 24 horas ou 7 dias; podem ser retirados antes do vencimento. São públicos para contas conectadas: não coloque dados sensíveis. Existe limite de cinco publicações por minuto. São consultados os 20 avisos ativos mais recentes e exibidos até três por vez. Cada pessoa pode fechar um aviso nesse navegador/conta; limpar os dados do navegador pode fazê-lo reaparecer. Avisos vencidos ou retirados deixam de ser listados, mas seus registros não são automaticamente apagados do banco.
+
+O aplicativo consulta avisos ao abrir, retornar ao primeiro plano e aproximadamente a cada 60 segundos enquanto visível. Não é notificação push: com o aplicativo fechado não há entrega, e rede ou suspensão do navegador podem atrasá-la. Teste o fluxo real depois da publicação.
+
+Os três efeitos de espera da Nodia (orbe, hamster e café) podem ser escolhidos no próprio chat; a preferência fica no aparelho. Os outros elementos das referências foram adaptados ao visual e às funções disponíveis, não reproduzidos integralmente. Movimento reduzido é respeitado. Créditos e licença dos trechos incorporados estão em `THIRD-PARTY-UI.txt`.
+
 ## Assistente Nodia e reações
 
 1. Aplique também a migração `009_nodia_quota.sql` e publique a função `nodia` conforme `supabase/config.toml`. As funções são protegidas pelo JWT próprio da aplicação; a função valida banimento e limita cada identidade a 8 pedidos por minuto. Adicione ainda limites globais e monitore uso: criar muitas contas pode contornar o limite por identidade.
@@ -35,6 +45,13 @@ Gráficos Twemoji por Twitter, Inc. e outros colaboradores, licenciados sob CC B
 4. A conversa com Nodia não é criptografada de ponta a ponta até o provedor: o texto e até 12 mensagens anteriores são enviados à função, OpenRouter e ao provedor selecionado. O usuário recebe aviso e deve consentir. Nada das outras conversas é compartilhado automaticamente. O histórico é salvo no cofre cifrado local (até 100 mensagens), não é sincronizado e pode ser apagado na interface. Respostas podem conter erros. Nodia não lê automaticamente a conta, não tem ferramentas de acesso e não corrige ou publica código; correção automática exigiria integração, permissões e revisão separadas.
 5. Reações são enviadas como eventos cifrados e assinados no mesmo relay das mensagens; a versão atualizada deve estar nos aparelhos dos participantes. Mensagens e reações continuam locais e não são sincronizadas entre aparelhos. Em grupos, falha parcial de envio é informada; versões antigas ignoram reações. A sincronização depende da entrega do relay e não existe confirmação individual de leitura da reação.
 6. A imagem da Nodia foi incluída localmente a partir da URL fornecida. Antes de publicar, confirme que possui autorização/licença para usá-la. O selo indica apenas que Nodia é a assistente oficial do aplicativo; não é verificação por terceiros.
+
+### Atualização de fila, navegação e denúncias
+
+- A área da Nodia ocupa o painel principal no computador, sem a lista de conversas. Enquanto ela responde, o usuário pode escrever e enviar até cinco mensagens em fila; são enviadas em sequência, não em paralelo. Se falhar, é possível tentar novamente ou remover a primeira da fila. A fila e o texto ainda não enviado ficam somente em memória: recarregar a página, fechar o app ou sair da conta pode descartá-los. O histórico concluído continua salvo no cofre local.
+- O atendimento de denúncias exibe a mensagem imediatamente como “Enviando…” e aproveita casos já carregados. A função `case-desk` decifra as mensagens em paralelo. Isso melhora a sensação de resposta, mas rede, consultas e polling continuam afetando a demora; não existe prazo garantido de entrega. Publique também `supabase-painel/case-desk.ts` antes de publicar o site.
+- Os avisos de ações locais foram redesenhados e podem ser fechados. Veja também a seção de comunicados globais abaixo. Envio de áudio, imagens ou vídeos à Nodia, transcrição, geração de mídia e exclusão de imagens em menos de 24 horas **não estão implementados**. Dependem de modelos compatíveis, proteção dos arquivos, limites, política de retenção no provedor e implantação testada; não prometa exclusão em terceiros sem verificá-la.
+- Um erro 503 em produção continua exigindo diagnóstico dos logs operacionais `[NODIA]`: não indica sozinho se a causa é credencial, limite, migração, modelo, provedor ou rede. A atualização visual/fila não corrige segredos ou indisponibilidade no Supabase automaticamente.
 
 ### Respostas ao vivo e formatação da Nodia
 
