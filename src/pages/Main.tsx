@@ -3,8 +3,10 @@ import { msgLabel, useApp } from "../lib/store";
 import { sfx, soundEnabled, setSoundEnabled } from "../lib/sounds";
 import Chat from "../components/Chat";
 import NodiaChat from "../components/NodiaChat";
+import CaseDesk from "../components/CaseDesk";
+import CaseAdmin from "../components/CaseAdmin";
 import Dialog from "../components/Dialog";
-import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconHash, IconImage, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo } from "../icons";
+import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconFlag, IconHash, IconImage, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo } from "../icons";
 const QrDialog = lazy(() => import("../components/QrDialog"));
 import { profileImage } from "../lib/media";
 import { turnConfigured } from "../lib/callEngine";
@@ -19,10 +21,7 @@ import type { Msg } from "../types";
 type ReportCat = "csam" | "harassment" | "spam" | "other";
 
 const CATS: { v: ReportCat; t: string; d: string }[] = [
-  { v: "csam", t: "Abuso ou exploração sexual de crianças/adolescentes", d: "Conta banida permanentemente após verificação." },
-  { v: "harassment", t: "Assédio, ameaça ou perseguição", d: "" },
-  { v: "spam", t: "Spam ou golpe", d: "" },
-  { v: "other", t: "Outro conteúdo ilegal ou abusivo", d: "" },
+  { v: "csam", t: "Abuso ou exploração sexual de crianças e adolescentes", d: "Uma equipe avalia a evidência antes de qualquer decisão. Imagens e conversas comuns envolvendo crianças não são proibidas por esse motivo." },
 ];
 
 function AddContact({ onClose }: { onClose: () => void }) {
@@ -68,7 +67,7 @@ function AddContact({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ReportDialog({ msg, onClose, toast }: { msg: Msg; onClose: () => void; toast: (t: string) => void }) {
+function ReportDialog({ msg, onClose, onSubmitted }: { msg: Msg; onClose: () => void; onSubmitted: (id: string) => void }) {
   const { report, local } = useApp();
   const [cat, setCat] = useState<ReportCat>("csam");
   const [busy, setBusy] = useState(false);
@@ -78,7 +77,7 @@ function ReportDialog({ msg, onClose, toast }: { msg: Msg; onClose: () => void; 
     <Dialog title="Denunciar mensagem" onClose={onClose}>
       <p className="muted small" style={{ margin: 0 }}>
         Será enviada à moderação somente esta mensagem de {alias}, com as provas criptográficas de autoria. O resto da conversa continua privado.
-        O contato será bloqueado.
+        O contato será bloqueado apenas para você. Autoria verificada não significa infração comprovada; uma pessoa avaliará a evidência.
       </p>
       {CATS.map((c) => (
         <label key={c.v} className="radio">
@@ -90,7 +89,7 @@ function ReportDialog({ msg, onClose, toast }: { msg: Msg; onClose: () => void; 
       <button className="btn primary" disabled={busy} onClick={async () => {
         setBusy(true);
         setErr(null);
-        try { await report(msg, cat); toast("Denúncia enviada e verificada. Contato bloqueado."); onClose(); }
+        try { const id = await report(msg, cat); onSubmitted(id); }
         catch (x) { setErr(x instanceof Error ? x.message : "Falha ao denunciar"); }
         finally { setBusy(false); }
       }}>{busy ? <><IconLoader className="spin" /> Enviando…</> : "Enviar denúncia"}</button>
@@ -130,7 +129,7 @@ function NewGroup({ onClose, onCreated }: { onClose: () => void; onCreated: (gid
 }
 
 function ProfileImages() {
-  const { local, userId, setProfileImages, resolveProfileConflict } = useApp();
+  const { local, userId, setProfileImages, resolveProfileConflict, profileSyncStatus } = useApp();
   const av = useRef<HTMLInputElement>(null);
   const bn = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -158,7 +157,7 @@ function ProfileImages() {
       <span className="muted small">Seus contatos aceitos veem a foto e o banner.</span>
       <div className="profile-sync" role="status">
         <b>Sincronização do perfil</b>
-        <span>{local?.profileSync?.conflict ? "O perfil foi alterado em outro aparelho. Escolha qual versão manter." : local?.profileSync?.dirty ? "Alterações aguardando sincronização." : local?.profileSync?.revision ? "Nome, foto e banner sincronizados entre aparelhos." : "Aguardando conexão para sincronizar o perfil."}</span>
+        <span>{profileSyncStatus === "unavailable" ? "Sincronização indisponível. Seu perfil continua salvo neste aparelho." : local?.profileSync?.conflict ? "O perfil foi alterado em outro aparelho. Escolha qual versão manter." : local?.profileSync?.dirty ? "Alterações aguardando sincronização." : local?.profileSync?.revision && profileSyncStatus === "ready" ? "Nome, foto e banner sincronizados entre aparelhos." : "Aguardando conexão para sincronizar o perfil."}</span>
         {local?.profileSync?.conflict && <div className="row-btns">
           <button className="btn sm" onClick={() => { if (confirm("Substituir o perfil salvo no servidor pela versão deste aparelho?")) void resolveProfileConflict("local"); }}>Manter deste aparelho</button>
           <button className="btn sm" onClick={() => { if (confirm("Substituir o perfil deste aparelho pela versão salva no servidor?")) void resolveProfileConflict("server"); }}>Usar versão do servidor</button>
@@ -331,12 +330,16 @@ const hashKey = (): string | null => {
   try { return m ? decodeURIComponent(m[1]) : null; } catch { return null; }
 };
 
+const caseRoute = (): string | null => { if (location.hash === "#/cases") return ""; const m = location.hash.match(/^#\/case\/([0-9a-f-]{36})$/); return m ? m[1] : null; };
+
 type Filter = "all" | "contacts" | "groups";
 
 export default function Main() {
   const { local, online, notice, clearNotice, reconnect, userId, addContact, call } = useApp();
   const [active, setActive] = useState<string | null>(hashKey);
+  const [adminDesk, setAdminDesk] = useState(() => location.hash === "#/admin-cases");
   const [assistant, setAssistant] = useState(() => location.hash === "#/assistant");
+  const [caseId, setCaseId] = useState<string | null>(caseRoute);
   const [filter, setFilter] = useState<Filter>("all");
   const [dlg, setDlg] = useState<"add" | "settings" | "group" | "qr" | null>(null);
   const [setSecInit, setSetSecInit] = useState<Sec>("perfil");
@@ -355,7 +358,7 @@ export default function Main() {
 
   // ---- navegação: cada conversa tem URL (#/c/<id>); o botão "voltar" do celular/navegador fecha a conversa ----
   useEffect(() => {
-    const sync = () => { const k = hashKey(); const ai = location.hash === "#/assistant"; if (!k && !ai) pushed.current = false; setActive(k); setAssistant(ai); };
+    const sync = () => { const k = hashKey(); const ai = location.hash === "#/assistant"; const c = caseRoute(); if (!k && !ai && c === null) pushed.current = false; setActive(k); setAssistant(ai); setCaseId(c); setAdminDesk(location.hash === "#/admin-cases"); };
     window.addEventListener("hashchange", sync);
     window.addEventListener("popstate", sync);
     return () => { window.removeEventListener("hashchange", sync); window.removeEventListener("popstate", sync); };
@@ -364,7 +367,7 @@ export default function Main() {
     const url = `#/c/${encodeURIComponent(k)}`;
     if (hashKey()) history.replaceState(null, "", url); // trocar de conversa não empilha histórico
     else { pushed.current = true; location.hash = url; }
-    setActive(k); setAssistant(false);
+    setActive(k); setAssistant(false); setAdminDesk(false); setCaseId(null);
   }, []);
   const closeChat = useCallback(() => {
     if (pushed.current) { pushed.current = false; history.back(); }
@@ -373,11 +376,21 @@ export default function Main() {
 
   const openAssistant = useCallback(() => {
     if (location.hash !== "#/assistant") { pushed.current = true; location.hash = "#/assistant"; }
-    setActive(null); setAssistant(true);
+    setActive(null); setAssistant(true); setAdminDesk(false); setCaseId(null);
   }, []);
   const closeAssistant = useCallback(() => {
     if (pushed.current) { pushed.current = false; history.back(); }
     else { history.replaceState(null, "", location.pathname + location.search); setAssistant(false); }
+  }, []);
+
+  const openCases = useCallback((id?: string) => {
+    const url=id ? `#/case/${id}` : "#/cases";
+    if (location.hash !== url) { pushed.current=true; location.hash=url; }
+    setActive(null); setAssistant(false); setAdminDesk(false); setCaseId(id ?? "");
+  }, []);
+  const closeCases = useCallback(() => {
+    if (pushed.current) { pushed.current=false; history.back(); }
+    else { history.replaceState(null,"",location.pathname+location.search); setCaseId(null); }
   }, []);
 
   // link de convite (#/add?id=...) e avisos da chamada
@@ -433,15 +446,16 @@ export default function Main() {
   const filters: { v: Filter; t: string }[] = [{ v: "all", t: "Conversas" }, { v: "contacts", t: "Contatos" }, { v: "groups", t: "Grupos" }];
 
   return (
-    <div className={`app ${activeKey || assistant ? "chat-open" : ""}`}>
+    <div className={`app ${activeKey || assistant || (adminDesk && userId === "mjii6xurvff2p33tl6vftzf2vu") || caseId !== null ? "chat-open" : ""}`}>
       <nav className="rail" aria-label="Menu">
         <span className="rail-logo"><Logo size={40} /></span>
         {([["all", "Conversas", IconChat], ["contacts", "Contatos", IconUser], ["groups", "Grupos", IconUsers]] as const).map(([v, t, I]) => (
-          <button key={v} className={`rail-btn ${!assistant && filter === v ? "on" : ""}`} onClick={() => { setFilter(v); if (assistant) closeAssistant(); }} title={t} aria-label={t} aria-current={!assistant && filter === v ? "page" : undefined}>
+          <button key={v} className={`rail-btn ${!assistant && caseId === null && filter === v ? "on" : ""}`} onClick={() => { setFilter(v); if(adminDesk) { history.replaceState(null,"",location.pathname+location.search); setAdminDesk(false); } if (assistant) closeAssistant(); else if (caseId !== null) closeCases(); }} title={t} aria-label={t} aria-current={!assistant && caseId === null && filter === v ? "page" : undefined}>
             <I />{v === "all" && totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}<span className="rail-tip">{t}</span>
           </button>
         ))}
         <button className={`rail-btn ${assistant ? "on" : ""}`} onClick={openAssistant} title="Assistente IA" aria-label="Assistente IA" aria-current={assistant ? "page" : undefined}><IconSparkle /><span className="rail-tip">Assistente IA</span></button>
+        <button className={`rail-btn ${caseId !== null ? "on" : ""}`} onClick={() => openCases()} title="Denúncias" aria-label="Denúncias"><IconFlag /><span className="rail-tip">Denúncias</span></button>
         <button className="rail-btn" onClick={() => setDlg("qr")} title="QR code" aria-label="QR code"><IconQr /><span className="rail-tip">QR code</span></button>
         <span className="rail-space" />
         <button className="rail-btn" onClick={() => openSettings("aparencia")} title="Aparência" aria-label="Aparência"><IconPalette /><span className="rail-tip">Aparência</span></button>
@@ -475,6 +489,8 @@ export default function Main() {
             <button className="btn" style={{ minHeight: 36 }} onClick={() => openSettings()}>Detalhes</button>
           </div>
         )}
+        <button className="case-entry" onClick={() => openCases()}><IconFlag /> Denúncias e apelações <IconChevronRight /></button>
+        {userId === "mjii6xurvff2p33tl6vftzf2vu" && <button className="case-entry" onClick={() => {setActive(null);setAssistant(false);setCaseId(null);setAdminDesk(true);location.hash="#/admin-cases"}}><IconFlag /> Central do administrador <IconChevronRight /></button>}
         <div className="chips" role="tablist" aria-label="Filtrar">
           {filters.map((f) => <button key={f.v} role="tab" aria-selected={filter === f.v} className={`chip ${filter === f.v ? "on" : ""}`} onClick={() => setFilter(f.v)}>{f.t}</button>)}
         </div>
@@ -517,7 +533,7 @@ export default function Main() {
       </aside>
 
       <main className="main">
-        {assistant ? <NodiaChat onBack={closeAssistant} /> : activeKey ? (
+        {adminDesk && userId === "mjii6xurvff2p33tl6vftzf2vu" ? <CaseAdmin onBack={() => {history.replaceState(null,"",location.pathname+location.search);setAdminDesk(false)}} /> : caseId !== null ? <CaseDesk id={caseId} onList={() => openCases()} onOpen={(id) => openCases(id)} onBack={closeCases} onAssistant={openAssistant} /> : assistant ? <NodiaChat onBack={closeAssistant} /> : activeKey ? (
           <Chat key={activeKey} peer={activeKey} onBack={closeChat} onAssistant={openAssistant} onReport={setRep} toast={toast} />
         ) : (
           <div className="placeholder welcome-pane"><IconChat style={{ width: 56, height: 56 }} /><div><b>Suas conversas</b><span>Selecione uma conversa para começar.</span></div><div className="pane-feats"><span><IconLock /> Ponta a ponta</span><span><IconShieldCheck /> Privacidade</span></div></div>
@@ -528,7 +544,7 @@ export default function Main() {
       {dlg === "qr" && <Suspense fallback={null}><QrDialog onClose={() => setDlg(null)} toast={toast} /></Suspense>}
       {dlg === "group" && <NewGroup onClose={() => setDlg(null)} onCreated={openChat} />}
       {dlg === "settings" && <SettingsDialog initial={setSecInit} onClose={() => setDlg(null)} onTerms={() => { location.hash = "#/terms"; }} />}
-      {rep && <ReportDialog msg={rep} onClose={() => setRep(null)} toast={toast} />}
+      {rep && <ReportDialog msg={rep} onClose={() => setRep(null)} onSubmitted={(id) => { setRep(null); openCases(id); }} />}
       {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
     </div>
   );

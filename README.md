@@ -1,3 +1,5 @@
+> **Atualização:** para o fluxo atual de denúncias e administrador, siga `LEIA-ANTES-DE-PUBLICAR.md`. As instruções antigas sobre links de decisão e revisão independente foram substituídas.
+
 # SeuChatSeguro
 
 > **Atualização:** leia [LEIA-ANTES-DE-PUBLICAR.md](LEIA-ANTES-DE-PUBLICAR.md) para as migrações 007 e 008, implantação, retenção e limitações de segurança. As notas antigas sobre anexos são substituídas por esse documento.
@@ -44,7 +46,7 @@ Tudo vem de variáveis no topo de `src/styles/global.css` (`--accent`, `--accent
 - **Mensagens:** caixa selada (X25519) por mensagem, relay em `relay_messages`, **apagada do servidor assim que o destinatário confirma**; expira em 30 dias se não entregue.
 - **Histórico:** só no aparelho, IndexedDB cifrado (Argon2id + XChaCha20-Poly1305).
 - **Efêmeras:** o tempo conta a partir da leitura, nos dois lados.
-- **Denúncia:** message franking. O servidor verifica que a mensagem veio mesmo do remetente sem nunca ter lido o conteúdo; a evidência é guardada cifrada para a moderação (`npm run decrypt-evidence`). CSAM verificado bane o ID.
+- **Denúncia:** message franking. O servidor verifica que a mensagem veio mesmo do remetente sem nunca ter lido o conteúdo; a evidência é guardada cifrada para a moderação (`npm run decrypt-evidence`). A prova verifica autoria e integridade, não o conteúdo. Um moderador humano revisa a denúncia e decide; existe uma apelação revisada por outra pessoa.
 - **Filtro de imagens:** hash perceptual (núcleo do PDQ) antes de enviar e ao receber, contra `public/blocklist.json` assinado (`scripts/sign-blocklist.mjs`). Fail-closed por padrão: imagem enviada ou recebida é bloqueada sem lista assinada válida. Obtenha autorização e dados de uma organização provedora; não use listas inventadas.
 
 ## 3.1 Recursos novos

@@ -392,7 +392,7 @@ export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { p
   const lastSeen = contact?.lastSeen;
   const isOnline = !!contact && !!activity[contact.id] && now - activity[contact.id] < 65_000;
   const subtitle = typers.length ? (group ? `${typers.slice(0, 2).join(", ")} ${typers.length > 1 ? "estão digitando" : "está digitando"}` : "digitando…")
-    : group ? `${group.members.length} membros` : isOnline ? "Online" : lastSeen ? `Offline · visto por último ${new Date(lastSeen).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "Status indisponível";
+    : group ? `${group.members.length} membros` : isOnline ? "Online" : lastSeen ? `Visto pela última vez em ${new Date(lastSeen).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : "Visto pela última vez: ainda não disponível";
 
   return (
     <>

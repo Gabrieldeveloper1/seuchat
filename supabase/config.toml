@@ -32,3 +32,7 @@ verify_jwt = false
 
 [functions.nodia]
 verify_jwt = false
+[functions.case-desk]
+verify_jwt = false
+[functions.appeal-decision]
+verify_jwt = false

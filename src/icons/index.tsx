@@ -81,9 +81,11 @@ export const IconFlip = make(<><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9
 // Marca: balão de conversa e cadeado em azul.
 export function Logo({ size = 36, framed = true, ...p }: P & { size?: number; framed?: boolean }) {
   return <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden focusable={false} {...p}>
-    {framed && <rect width="64" height="64" rx="16" fill="#2457D6" />}
-    <path d="M15 19a8 8 0 0 1 8-8h18a8 8 0 0 1 8 8v19a8 8 0 0 1-8 8H29l-10 7v-7a8 8 0 0 1-4-8z" fill="none" stroke={framed ? "white" : "#2457D6"} strokeWidth="3.5" strokeLinejoin="round" />
-    <path d="M27 28v-3a5 5 0 0 1 10 0v3m-12 0h14v10H25z" fill="none" stroke={framed ? "white" : "#2457D6"} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+    {framed && <rect width="64" height="64" rx="18" fill="#2457D6" />}
+    <path d="M18 18.5a7.5 7.5 0 0 1 7.5-7.5h13a7.5 7.5 0 0 1 7.5 7.5v19a7.5 7.5 0 0 1-7.5 7.5H29l-9 7v-8.6a7.5 7.5 0 0 1-2-5.1z" fill="none" stroke={framed ? "white" : "#2457D6"} strokeWidth="3.8" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M27 28v-3.2a5 5 0 0 1 10 0V28" fill="none" stroke={framed ? "white" : "#2457D6"} strokeWidth="3" strokeLinecap="round" />
+    <rect x="24.5" y="28" width="15" height="11.5" rx="2.5" fill={framed ? "white" : "#2457D6"} />
+    <circle cx="32" cy="33.7" r="1.5" fill={framed ? "#2457D6" : "white"} />
   </svg>;
 }
 export function Wordmark() {

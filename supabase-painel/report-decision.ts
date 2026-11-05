@@ -1,8 +1,7 @@
+// GERADO. Edite supabase/functions/report-decision/index.ts e execute node scripts/generate-dashboard.mjs
+// Utilidades compartilhadas das Edge Functions (Deno).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { SignJWT, jwtVerify } from "npm:jose@5";
-
-// ---- util compartilhado (inline) ----
-// Utilidades compartilhadas das Edge Functions (Deno).
 
 export const enc = new TextEncoder();
 
@@ -119,7 +118,7 @@ const CAT: Record<string, string> = { csam: "Abuso infantil (CSAM)", harassment:
 
 function embed(r: ReportCard) {
   const color = r.status === "actioned" ? 0xdc2626 : r.status === "dismissed" ? 0x64748b : r.category === "csam" ? 0xdc2626 : 0xf59e0b;
-  const state = r.status === "actioned" ? `✅ Aprovada por ${r.by}` : r.status === "dismissed" ? `❌ Rejeitada por ${r.by}` : "⏳ Aguardando decisão";
+  const state = r.status === "reviewing" ? "🔎 Em análise" : r.status === "actioned" ? `✅ Aprovada por ${r.by}` : r.status === "dismissed" ? `❌ Rejeitada por ${r.by}` : "⏳ Aguardando decisão";
   return {
     title: "Nova denúncia", color, timestamp: new Date().toISOString(),
     fields: [
@@ -129,24 +128,19 @@ function embed(r: ReportCard) {
       { name: "Denúncia", value: `\`${r.id}\`` },
       ...(r.autoBanned ? [{ name: "Ação automática", value: "ID banido preventivamente. Rejeitar desfaz o banimento." }] : []),
     ],
-    footer: { text: "O conteúdo da mensagem NÃO é enviado ao Discord. Use o script decrypt-evidence." },
+    footer: { text: "O conteúdo não é enviado ao Discord. Abra a central do administrador." },
   };
 }
 
 /** Envia a denúncia ao Discord (somente metadados). Devolve o id da mensagem para editar depois. */
 export async function discordNotify(r: ReportCard): Promise<string | null> {
   const hook = Deno.env.get("DISCORD_WEBHOOK_URL"), site = Deno.env.get("SITE_URL");
-  if (!hook || !site || !Deno.env.get("DISCORD_LINK_KEY")) return null;
-  const exp = Date.now() + 7 * 86400_000;
-  const link = async (a: string) => `${site.replace(/\/$/, "")}/#/mod?r=${r.id}&a=${a}&e=${exp}&s=${await signDecision(r.id, a, exp)}`;
+  if (!hook || !site) return null;
   const res = await fetch(`${hook}?wait=true&with_components=true`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "SeuChatSeguro Moderação", embeds: [embed(r)],
-      components: [{ type: 1, components: [
-        { type: 2, style: 5, label: "Aprovar", url: await link("approve") },
-        { type: 2, style: 5, label: "Rejeitar", url: await link("reject") },
-      ] }],
+      components: [{ type: 1, components: [{ type: 2, style: 5, label: "Abrir central", url: `${site.replace(/\/$/, "")}/#/admin-cases` }] }],
     }),
   });
   return res.ok ? String((await res.json()).id) : null;
@@ -162,54 +156,14 @@ export async function discordResolve(messageId: string, r: ReportCard) {
   }).catch(() => {});
 }
 
-// ---- função ----
-
-// Decisão do administrador (links do Discord). Exige: link assinado e não expirado + chave de administrador.
-// MODERATION_ADMIN_KEYS="ana:chave1,bruno:chave2"  (a chave identifica quem decidiu na auditoria)
-function adminName(key: string): string | null {
-  for (const pair of (Deno.env.get("MODERATION_ADMIN_KEYS") ?? "").split(",")) {
-    const i = pair.indexOf(":");
-    if (i > 0 && key.length >= 16 && eq(enc.encode(pair.slice(i + 1).trim()), enc.encode(key))) return pair.slice(0, i).trim();
-  }
-  return null;
+/** Apenas metadados da apelação; nunca envia mensagem denunciada ou conteúdo ao Discord. */
+export async function discordAppeal(id: string, reportId: string, role: string): Promise<void> {
+  const hook=Deno.env.get("DISCORD_WEBHOOK_URL"), site=Deno.env.get("SITE_URL");
+  if (!hook || !site) return;
+  await fetch(`${hook}?wait=true&with_components=true`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"SeuChatSeguro Moderação",embeds:[{title:"Apelação recebida",description:`Denúncia: ${reportId}\nPapel: ${role === "reported" ? "conta denunciada" : "denunciante"}\nA revisão é feita pelo administrador da conta autorizada.`,color:0x356be5}],components:[{type:1,components:[{type:2,style:5,label:"Abrir central",url:`${site.replace(/\/$/, "")}/#/admin-cases`}]}]})});
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: cors });
-  if (req.method !== "POST") return fail(405, "method");
-  let b: { r?: string; a?: string; e?: string; s?: string; key?: string };
-  try { b = await req.json(); } catch { return fail(400, "json"); }
-  const exp = Number(b.e);
-  if (!b.r || !/^[0-9a-f-]{36}$/.test(b.r) || (b.a !== "approve" && b.a !== "reject") || !b.s || !(exp > Date.now())) return fail(400, "link inválido ou expirado");
-  if (!eq(enc.encode(await signDecision(b.r, b.a, exp)), enc.encode(b.s))) return fail(403, "assinatura do link inválida");
-  const who = adminName(b.key ?? "");
-  if (!who) { await new Promise((r) => setTimeout(r, 1500)); return fail(403, "chave de administrador incorreta"); }
 
-  const db = admin();
-  const { data: rep } = await db.from("reports").select("id,category,reported_id,status,discord_message_id,decided_by").eq("id", b.r).maybeSingle();
-  if (!rep) return fail(404, "denúncia não encontrada");
-  if (rep.status === "actioned" || rep.status === "dismissed") return fail(409, `já decidida por ${rep.decided_by ?? "outro administrador"}`);
 
-  const approve = b.a === "approve";
-  if (approve) {
-    const { data: ban } = await db.from("bans").select("id").eq("user_id", rep.reported_id).limit(1);
-    if (!ban?.length) {
-      await db.from("identities").update({ banned_at: new Date().toISOString() }).eq("user_id", rep.reported_id);
-      await db.from("bans").insert({ user_id: rep.reported_id, reason: `report_approved:${rep.category}`, report_id: rep.id });
-      await db.from("relay_messages").delete().eq("sender_id", rep.reported_id);
-    }
-  } else {
-    // rejeitar desfaz o banimento preventivo criado por ESTA denúncia (a evidência segue preservada se houver legal_hold)
-    const { data: mine } = await db.from("bans").select("id").eq("report_id", rep.id);
-    if (mine?.length) {
-      await db.from("bans").delete().eq("report_id", rep.id);
-      const { data: other } = await db.from("bans").select("id").eq("user_id", rep.reported_id).limit(1);
-      if (!other?.length) await db.from("identities").update({ banned_at: null }).eq("user_id", rep.reported_id);
-    }
-  }
-  const status = approve ? "actioned" : "dismissed";
-  await db.from("reports").update({ status, decided_by: who, decided_at: new Date().toISOString() }).eq("id", rep.id);
-  await db.from("audit_log").insert({ actor: who, action: approve ? "report_approved" : "report_rejected", target: rep.id });
-  if (rep.discord_message_id) await discordResolve(rep.discord_message_id, { id: rep.id, category: rep.category, reportedId: rep.reported_id, autoBanned: false, status, by: who });
-  return json({ ok: true, status, by: who });
-});
+// Fluxo legado desativado: decisões só pela identidade autorizada no case-desk.
+Deno.serve((req) => req.method === "OPTIONS" ? new Response(null,{headers:cors}) : fail(410,"Use a central do administrador autenticado."));

@@ -1,9 +1,7 @@
-import nacl from "npm:tweetnacl@1";
+// GERADO. Edite supabase/functions/report-verify/index.ts e execute node scripts/generate-dashboard.mjs
+// Utilidades compartilhadas das Edge Functions (Deno).
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { SignJWT, jwtVerify } from "npm:jose@5";
-
-// ---- util compartilhado (inline) ----
-// Utilidades compartilhadas das Edge Functions (Deno).
 
 export const enc = new TextEncoder();
 
@@ -120,7 +118,7 @@ const CAT: Record<string, string> = { csam: "Abuso infantil (CSAM)", harassment:
 
 function embed(r: ReportCard) {
   const color = r.status === "actioned" ? 0xdc2626 : r.status === "dismissed" ? 0x64748b : r.category === "csam" ? 0xdc2626 : 0xf59e0b;
-  const state = r.status === "actioned" ? `✅ Aprovada por ${r.by}` : r.status === "dismissed" ? `❌ Rejeitada por ${r.by}` : "⏳ Aguardando decisão";
+  const state = r.status === "reviewing" ? "🔎 Em análise" : r.status === "actioned" ? `✅ Aprovada por ${r.by}` : r.status === "dismissed" ? `❌ Rejeitada por ${r.by}` : "⏳ Aguardando decisão";
   return {
     title: "Nova denúncia", color, timestamp: new Date().toISOString(),
     fields: [
@@ -130,24 +128,19 @@ function embed(r: ReportCard) {
       { name: "Denúncia", value: `\`${r.id}\`` },
       ...(r.autoBanned ? [{ name: "Ação automática", value: "ID banido preventivamente. Rejeitar desfaz o banimento." }] : []),
     ],
-    footer: { text: "O conteúdo da mensagem NÃO é enviado ao Discord. Use o script decrypt-evidence." },
+    footer: { text: "O conteúdo não é enviado ao Discord. Abra a central do administrador." },
   };
 }
 
 /** Envia a denúncia ao Discord (somente metadados). Devolve o id da mensagem para editar depois. */
 export async function discordNotify(r: ReportCard): Promise<string | null> {
   const hook = Deno.env.get("DISCORD_WEBHOOK_URL"), site = Deno.env.get("SITE_URL");
-  if (!hook || !site || !Deno.env.get("DISCORD_LINK_KEY")) return null;
-  const exp = Date.now() + 7 * 86400_000;
-  const link = async (a: string) => `${site.replace(/\/$/, "")}/#/mod?r=${r.id}&a=${a}&e=${exp}&s=${await signDecision(r.id, a, exp)}`;
+  if (!hook || !site) return null;
   const res = await fetch(`${hook}?wait=true&with_components=true`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "SeuChatSeguro Moderação", embeds: [embed(r)],
-      components: [{ type: 1, components: [
-        { type: 2, style: 5, label: "Aprovar", url: await link("approve") },
-        { type: 2, style: 5, label: "Rejeitar", url: await link("reject") },
-      ] }],
+      components: [{ type: 1, components: [{ type: 2, style: 5, label: "Abrir central", url: `${site.replace(/\/$/, "")}/#/admin-cases` }] }],
     }),
   });
   return res.ok ? String((await res.json()).id) : null;
@@ -163,7 +156,15 @@ export async function discordResolve(messageId: string, r: ReportCard) {
   }).catch(() => {});
 }
 
-// ---- função ----
+/** Apenas metadados da apelação; nunca envia mensagem denunciada ou conteúdo ao Discord. */
+export async function discordAppeal(id: string, reportId: string, role: string): Promise<void> {
+  const hook=Deno.env.get("DISCORD_WEBHOOK_URL"), site=Deno.env.get("SITE_URL");
+  if (!hook || !site) return;
+  await fetch(`${hook}?wait=true&with_components=true`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"SeuChatSeguro Moderação",embeds:[{title:"Apelação recebida",description:`Denúncia: ${reportId}\nPapel: ${role === "reported" ? "conta denunciada" : "denunciante"}\nA revisão é feita pelo administrador da conta autorizada.`,color:0x356be5}],components:[{type:1,components:[{type:2,style:5,label:"Abrir central",url:`${site.replace(/\/$/, "")}/#/admin-cases`}]}]})});
+}
+
+
+import nacl from "npm:tweetnacl@1";
 
 // Denúncia verificável (message franking). O denunciante é o DESTINATÁRIO da mensagem.
 const SERVER_KEY = () => b64d(Deno.env.get("FRANKING_SERVER_KEY")!);
@@ -186,7 +187,7 @@ Deno.serve(async (req) => {
 
   let b: { reportedId: string; category: string; plaintext: string; frank: { key: string; tag: string; senderSig: string; serverMac: string; sentAt: number } };
   try { b = await req.json(); } catch { return fail(400, "json"); }
-  if (!["csam", "harassment", "spam", "other"].includes(b.category)) return fail(400, "categoria");
+  if (b.category !== "csam") return fail(400, "categoria");
   if (!/^[a-z2-7]{26}$/.test(b.reportedId) || typeof b.plaintext !== "string" || b.plaintext.length > 400_000) return fail(400, "campos");
 
   const key = b64d(b.frank.key), tag = b64d(b.frank.tag), sig = b64d(b.frank.senderSig), mac = b64d(b.frank.serverMac);
@@ -217,18 +218,11 @@ Deno.serve(async (req) => {
   }).select("id").single();
   if (error || !report) return fail(500, error?.message ?? "erro");
 
-  // 5. CSAM verificado: banimento imediato do ID. O restante vai para revisão humana.
-  if (isCsam) {
-    await db.from("identities").update({ banned_at: new Date().toISOString() }).eq("user_id", b.reportedId);
-    await db.from("bans").insert({ user_id: b.reportedId, attestation_hash: sender.attestation_hash, reason: "csam_verified_report", report_id: report.id });
-    await db.from("relay_messages").delete().eq("sender_id", b.reportedId);
-    await db.from("audit_log").insert({ actor: "system", action: "auto_ban_csam", target: b.reportedId });
-    // TODO(compliance): encaminhar ao canal legal (ex.: NCMEC CyberTipline / autoridades brasileiras)
-    // após revisão humana, conforme orientação jurídica. Veja docs/CONFORMIDADE.md.
-  }
+  // A criptografia comprova autoria e integridade, não a natureza da mensagem.
+  // Nenhum banimento é aplicado sem revisão humana da evidência.
   // 6. avisa a moderação no Discord (só metadados; falha aqui não derruba a denúncia)
   try {
-    const mid = await discordNotify({ id: report.id, category: b.category, reportedId: b.reportedId, autoBanned: isCsam });
+    const mid = await discordNotify({ id: report.id, category: b.category, reportedId: b.reportedId, autoBanned: false });
     if (mid) await db.from("reports").update({ discord_message_id: mid }).eq("id", report.id);
   } catch { /* ignora */ }
   return json({ reportId: report.id, verified: true, sealed: b64e(evidence).length > 0 });

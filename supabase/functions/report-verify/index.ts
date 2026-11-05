@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
 
   let b: { reportedId: string; category: string; plaintext: string; frank: { key: string; tag: string; senderSig: string; serverMac: string; sentAt: number } };
   try { b = await req.json(); } catch { return fail(400, "json"); }
-  if (!["csam", "harassment", "spam", "other"].includes(b.category)) return fail(400, "categoria");
+  if (b.category !== "csam") return fail(400, "categoria");
   if (!/^[a-z2-7]{26}$/.test(b.reportedId) || typeof b.plaintext !== "string" || b.plaintext.length > 400_000) return fail(400, "campos");
 
   const key = b64d(b.frank.key), tag = b64d(b.frank.tag), sig = b64d(b.frank.senderSig), mac = b64d(b.frank.serverMac);
@@ -53,18 +53,11 @@ Deno.serve(async (req) => {
   }).select("id").single();
   if (error || !report) return fail(500, error?.message ?? "erro");
 
-  // 5. CSAM verificado: banimento imediato do ID. O restante vai para revisão humana.
-  if (isCsam) {
-    await db.from("identities").update({ banned_at: new Date().toISOString() }).eq("user_id", b.reportedId);
-    await db.from("bans").insert({ user_id: b.reportedId, attestation_hash: sender.attestation_hash, reason: "csam_verified_report", report_id: report.id });
-    await db.from("relay_messages").delete().eq("sender_id", b.reportedId);
-    await db.from("audit_log").insert({ actor: "system", action: "auto_ban_csam", target: b.reportedId });
-    // TODO(compliance): encaminhar ao canal legal (ex.: NCMEC CyberTipline / autoridades brasileiras)
-    // após revisão humana, conforme orientação jurídica. Veja docs/CONFORMIDADE.md.
-  }
+  // A criptografia comprova autoria e integridade, não a natureza da mensagem.
+  // Nenhum banimento é aplicado sem revisão humana da evidência.
   // 6. avisa a moderação no Discord (só metadados; falha aqui não derruba a denúncia)
   try {
-    const mid = await discordNotify({ id: report.id, category: b.category, reportedId: b.reportedId, autoBanned: isCsam });
+    const mid = await discordNotify({ id: report.id, category: b.category, reportedId: b.reportedId, autoBanned: false });
     if (mid) await db.from("reports").update({ discord_message_id: mid }).eq("id", report.id);
   } catch { /* ignora */ }
   return json({ reportId: report.id, verified: true, sealed: b64e(evidence).length > 0 });

@@ -7,7 +7,7 @@ import { isValidMnemonic, keysFromMnemonic, newMnemonic, normalizeMnemonic, type
 import { normalizeAppNumber } from "./phone";
 import { createVault, openVault, saveVault, vaultExists, wipeVault, type VaultHandle } from "./vault";
 import { startSession, fetchIdentity, type RelayRow, type Session } from "./session";
-import { ApiError, getNews, type NewsItem, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers, getProfileSnapshot, putProfileSnapshot, askNodia } from "./api";
+import { ApiError, getNews, type NewsItem, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers, getProfileSnapshot, putProfileSnapshot, askNodia, caseRequest, type ModerationCase } from "./api";
 import { buildReport, frankMessage, verifyIncoming, type ReportPayload } from "./franking";
 import { dataUrlIsBlocked, imageSendingAllowed, loadBlocklist, prepareImage } from "./imageFilter";
 import { decryptProfile, encryptProfile, profileFingerprint } from "./profileSync";
@@ -25,6 +25,7 @@ export type Phase = "boot" | "welcome" | "locked" | "app";
 
 interface Ctx {
   nodiaBusy: boolean;
+  profileSyncStatus: "idle" | "ready" | "unavailable";
   consentNodia(): void;
   clearNodia(): void;
   sendNodia(text: string): Promise<void>;
@@ -63,7 +64,10 @@ interface Ctx {
   sendText(peer: string, text: string, reply?: Msg, mentions?: string[]): Promise<void>;
   sendImage(peer: string, file: File): Promise<void>;
   markRead(peer: string): void;
-  report(msg: Msg, category: ReportPayload["category"]): Promise<void>;
+  report(msg: Msg, category: ReportPayload["category"]): Promise<string>;
+  listCases(): Promise<ModerationCase[]>;
+  adminCase<T>(op: "admin-list" | "admin-evidence" | "admin-decision" | "admin-appeal" | "messages" | "send" | "admin-presence", id?: string, action?: string, note?: string): Promise<T>;
+  appealCase(id: string, reason: "mistake" | "context" | "other", note: string): Promise<void>;
   setAutolock(min: number): void;
   deleteAccount(): Promise<void>;
   sendAudio(peer: string, rec: { dataUrl: string; blob: Blob; mime: string; dur: number; wave: number[] }, onProgress?: (p: number) => void): Promise<void>;
@@ -478,12 +482,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [enqueue]);
 
   // Sincronização cifrada com controle de versão. Conflitos nunca sobrescrevem silenciosamente.
+  const [profileSyncStatus, setProfileSyncStatus] = useState<"idle" | "ready" | "unavailable">("idle");
+  const profileRetry = useRef({ failures: 0, next: 0 });
   const profileSyncRunning = useRef(false);
   const syncProfile = useCallback(async (choice?: "local" | "server") => {
-    if (profileSyncRunning.current) return;
+    if (profileSyncRunning.current || (!choice && Date.now() < profileRetry.current.next)) return;
     const sess = sessRef.current, keys = keysRef.current, initial = localRef.current;
     if (!sess || !keys || !initial) return;
     profileSyncRunning.current = true;
+    let failed = false;
     try {
       const withAuth = async <T,>(fn: (jwt: string) => Promise<T>): Promise<T> => {
         try { return await fn(sess.getJwt()); }
@@ -542,9 +549,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } else if (!remote && meta.revision > 0) {
         update((state) => ({ ...state, profileSync: { ...meta, dirty: true, conflict: true } }));
       }
-    } catch (e) {
-      if (sessRef.current === sess) setNotice(`Sincronização de perfil pendente: ${errMsg(e)}`);
-    } finally { profileSyncRunning.current = false; }
+    } catch {
+      failed = true;
+      if (sessRef.current === sess) {
+        const failures = Math.min(profileRetry.current.failures + 1, 6);
+        profileRetry.current = { failures, next: Date.now() + Math.min(300_000, 10_000 * 2 ** (failures - 1)) };
+        setProfileSyncStatus("unavailable");
+      }
+    } finally {
+      if (!failed && sessRef.current === sess && keysRef.current === keys) { profileRetry.current = { failures: 0, next: 0 }; setProfileSyncStatus("ready"); }
+      profileSyncRunning.current = false;
+    }
   }, [update]);
 
   const stopSession = useCallback(() => {
@@ -553,6 +568,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sessRef.current?.stop();
     sessRef.current = null;
     setOnline(false);
+    setProfileSyncStatus("idle");
+    profileRetry.current = { failures: 0, next: 0 };
     setActivity({});
     setTyping({});
   }, []);
@@ -1254,15 +1271,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const sess = sessRef.current;
       if (!sess || !msg.frank || msg.dir !== "in") throw new Error("Esta mensagem não pode ser denunciada");
       const who = msg.from ?? msg.peer;
-      await submitReport(sess.getJwt(), buildReport(who, category, msg.frank));
+      const receipt = await submitReport(sess.getJwt(), buildReport(who, category, msg.frank));
       update((s) => ({
         ...s,
         messages: s.messages.map((m) => (m.id === msg.id ? { ...m, reported: true } : m)),
         contacts: s.contacts.map((c) => (c.id === who ? { ...c, blocked: true } : c)),
       }));
+      return receipt.reportId;
     },
     [update],
   );
+  const listCases = useCallback(async () => {
+    const keys = keysRef.current; if (!keys) throw new Error("Desbloqueie sua conta para ver os casos.");
+    return (await caseRequest<{cases: ModerationCase[]}>(keys, "list")).cases;
+  }, []);
+  const appealCase = useCallback(async (id: string, reason: "mistake" | "context" | "other", note: string) => {
+    const keys = keysRef.current; if (!keys) throw new Error("Desbloqueie sua conta para apelar.");
+    await caseRequest(keys, "appeal", id, reason, note);
+  }, []);
+
+  const adminCase = useCallback(async <T,>(op: "admin-list" | "admin-evidence" | "admin-decision" | "admin-appeal" | "messages" | "send" | "admin-presence", id?: string, action?: string, note?: string): Promise<T> => {
+    const keys = keysRef.current; if (!keys) throw new Error("Desbloqueie sua conta.");
+    return caseRequest<T>(keys, op, id ?? null, action ?? null, note ?? null);
+  }, []);
 
   const deleteAccount = useCallback(async () => {
     const sess = sessRef.current;
@@ -1285,12 +1316,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearNotice: () => setNotice(null),
       createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl,
-      sendReaction, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
+      profileSyncStatus, sendReaction, sendText, sendImage, markRead, report, listCases, appealCase, adminCase, setAutolock, deleteAccount,
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
     [nodiaBusy, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
-      addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendReaction, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
+      addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, profileSyncStatus, sendReaction, sendText, sendImage, markRead, report, listCases, appealCase, adminCase, setAutolock, deleteAccount,
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
   );

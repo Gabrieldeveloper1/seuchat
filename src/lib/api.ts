@@ -177,3 +177,17 @@ export async function askNodia(jwt: string, messages: {role: "user" | "assistant
   if (typeof result.reply !== "string" || !result.reply.trim()) throw new ApiError(503, "Nodia indisponível");
   return result.reply;
 }
+
+export interface ModerationCase {
+  id: string; role: "reporter" | "reported"; category: string;
+  status: "open" | "reviewing" | "actioned" | "dismissed"; createdAt: string;
+  appeal: null | { id: string; report_id: string; status: "open" | "accepted" | "rejected"; created_at: string };
+}
+/** Autenticação de escopo limitado via posse da identidade, inclusive em contas banidas. */
+export async function caseRequest<T>(keys: Keys, op: "list" | "appeal" | "admin-list" | "admin-evidence" | "admin-decision" | "admin-appeal" | "messages" | "send" | "admin-presence", reportId: string | null = null, reason: string | null = null, note: string | null = null): Promise<T> {
+  await sodium.ready;
+  const {challenge} = await call<{challenge: string}>("case-desk", {userId:keys.userId,op:"challenge"});
+  const signed=JSON.stringify({op,reportId,reason,note});
+  const signature=sodium.crypto_sign_detached(cat(enc.encode("scs-case-v1:"),enc.encode(challenge),enc.encode(signed)),keys.idSec);
+  return call<T>("case-desk", {userId:keys.userId,op,reportId,reason,note,challenge,signature:toB64(signature)}, {timeoutMs:20000});
+}

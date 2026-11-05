@@ -117,7 +117,7 @@ const CAT: Record<string, string> = { csam: "Abuso infantil (CSAM)", harassment:
 
 function embed(r: ReportCard) {
   const color = r.status === "actioned" ? 0xdc2626 : r.status === "dismissed" ? 0x64748b : r.category === "csam" ? 0xdc2626 : 0xf59e0b;
-  const state = r.status === "actioned" ? `✅ Aprovada por ${r.by}` : r.status === "dismissed" ? `❌ Rejeitada por ${r.by}` : "⏳ Aguardando decisão";
+  const state = r.status === "reviewing" ? "🔎 Em análise" : r.status === "actioned" ? `✅ Aprovada por ${r.by}` : r.status === "dismissed" ? `❌ Rejeitada por ${r.by}` : "⏳ Aguardando decisão";
   return {
     title: "Nova denúncia", color, timestamp: new Date().toISOString(),
     fields: [
@@ -127,24 +127,19 @@ function embed(r: ReportCard) {
       { name: "Denúncia", value: `\`${r.id}\`` },
       ...(r.autoBanned ? [{ name: "Ação automática", value: "ID banido preventivamente. Rejeitar desfaz o banimento." }] : []),
     ],
-    footer: { text: "O conteúdo da mensagem NÃO é enviado ao Discord. Use o script decrypt-evidence." },
+    footer: { text: "O conteúdo não é enviado ao Discord. Abra a central do administrador." },
   };
 }
 
 /** Envia a denúncia ao Discord (somente metadados). Devolve o id da mensagem para editar depois. */
 export async function discordNotify(r: ReportCard): Promise<string | null> {
   const hook = Deno.env.get("DISCORD_WEBHOOK_URL"), site = Deno.env.get("SITE_URL");
-  if (!hook || !site || !Deno.env.get("DISCORD_LINK_KEY")) return null;
-  const exp = Date.now() + 7 * 86400_000;
-  const link = async (a: string) => `${site.replace(/\/$/, "")}/#/mod?r=${r.id}&a=${a}&e=${exp}&s=${await signDecision(r.id, a, exp)}`;
+  if (!hook || !site) return null;
   const res = await fetch(`${hook}?wait=true&with_components=true`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: "SeuChatSeguro Moderação", embeds: [embed(r)],
-      components: [{ type: 1, components: [
-        { type: 2, style: 5, label: "Aprovar", url: await link("approve") },
-        { type: 2, style: 5, label: "Rejeitar", url: await link("reject") },
-      ] }],
+      components: [{ type: 1, components: [{ type: 2, style: 5, label: "Abrir central", url: `${site.replace(/\/$/, "")}/#/admin-cases` }] }],
     }),
   });
   return res.ok ? String((await res.json()).id) : null;
@@ -158,4 +153,11 @@ export async function discordResolve(messageId: string, r: ReportCard) {
     method: "PATCH", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ embeds: [embed(r)], components: [] }),
   }).catch(() => {});
+}
+
+/** Apenas metadados da apelação; nunca envia mensagem denunciada ou conteúdo ao Discord. */
+export async function discordAppeal(id: string, reportId: string, role: string): Promise<void> {
+  const hook=Deno.env.get("DISCORD_WEBHOOK_URL"), site=Deno.env.get("SITE_URL");
+  if (!hook || !site) return;
+  await fetch(`${hook}?wait=true&with_components=true`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"SeuChatSeguro Moderação",embeds:[{title:"Apelação recebida",description:`Denúncia: ${reportId}\nPapel: ${role === "reported" ? "conta denunciada" : "denunciante"}\nA revisão é feita pelo administrador da conta autorizada.`,color:0x356be5}],components:[{type:1,components:[{type:2,style:5,label:"Abrir central",url:`${site.replace(/\/$/, "")}/#/admin-cases`}]}]})});
 }

@@ -85,7 +85,7 @@ export default function App() {
 
   let body;
   if (route.startsWith("#/terms")) return <TermsPage />;
-  if (route.startsWith("#/mod")) return <Suspense fallback={<Splash label="Abrindo moderação" />}><Moderation /></Suspense>;
+  if (route.startsWith("#/mod") || route.startsWith("#/appeal-mod")) return <Suspense fallback={<Splash label="Abrindo moderação" />}><Moderation /></Suspense>;
   if (app.phase === "boot") body = <Splash />;
   else if (app.phase === "welcome") body = <Welcome />;
   else if (app.phase === "locked") body = <Unlock />;

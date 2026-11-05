@@ -1,6 +1,5 @@
-import { admin, authUser, cors, fail, json } from "../_shared/util.ts";
+import { admin, authUser, cors, enc, fail, json } from "../_shared/util.ts";
 
-const enc = new TextEncoder();
 
 async function hmacSha1(secret: string, value: string): Promise<string> {
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
