@@ -26,6 +26,7 @@ export type Phase = "boot" | "welcome" | "locked" | "app";
 
 interface Ctx {
   nodiaBusy: boolean;
+  nodiaDraft: string;
   profileSyncStatus: "idle" | "ready" | "unavailable";
   consentNodia(): void;
   clearNodia(): void;
@@ -179,6 +180,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const [nodiaBusy, setNodiaBusy] = useState(false);
+  const [nodiaDraft, setNodiaDraft] = useState("");
   const nodiaPending = useRef(false);
   const consentNodia = useCallback(() => update((s) => ({ ...s, nodiaConsent: true })), [update]);
   const clearNodia = useCallback(() => { if (!nodiaPending.current) update((s) => ({ ...s, nodiaMessages: [] })); }, [update]);
@@ -186,18 +188,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const sess = sessRef.current; const current = localRef.current; const text = input.trim();
     if (!sess || !current || !current.nodiaConsent) throw new Error("Sessão ou consentimento indisponível.");
     if (!text || text.length > 3000 || nodiaPending.current) throw new Error("Mensagem inválida ou envio em andamento.");
-    nodiaPending.current = true; setNodiaBusy(true);
+    nodiaPending.current = true; setNodiaBusy(true); setNodiaDraft(""); let partial="";
+    const onDelta=(part:string)=>{if(sessRef.current!==sess)return;partial+=part;setNodiaDraft(partial)};
+    const savePair=(reply:string)=>{const ts=Date.now();update((s)=>({...s,nodiaMessages:[...(s.nodiaMessages??[]),{id:crypto.randomUUID(),role:"user" as const,content:text,ts},{id:crypto.randomUUID(),role:"assistant" as const,content:reply,ts:ts+1}].slice(-100)}))};
     try {
       const history = (current.nodiaMessages ?? []).slice(-12).map(({role, content}) => ({role, content: content.slice(0, 3000)}));
       while (history.reduce((n, m) => n + m.content.length, text.length) > 16000) history.shift();
       const messages = [...history, {role: "user" as const, content: text}];
       let reply: string;
-      try { reply = await askNodia(sess.getJwt(), messages); }
-      catch (e) { if (!(e instanceof ApiError) || e.status !== 401) throw e; await sess.refresh(); reply = await askNodia(sess.getJwt(), messages); }
+      try { reply = await askNodia(sess.getJwt(), messages, onDelta); }
+      catch (e) { if (!(e instanceof ApiError) || e.status !== 401 || partial) throw e; await sess.refresh(); reply = await askNodia(sess.getJwt(), messages, onDelta); }
       if (sessRef.current !== sess) return;
-      const ts = Date.now();
-      update((s) => ({ ...s, nodiaMessages: [...(s.nodiaMessages ?? []), {id: crypto.randomUUID(), role: "user" as const, content: text, ts}, {id: crypto.randomUUID(), role: "assistant" as const, content: reply, ts: ts + 1}].slice(-100) }));
-    } finally { nodiaPending.current = false; setNodiaBusy(false); }
+      savePair(reply);
+    } catch(e) {if(partial && sessRef.current===sess)savePair(partial+"\n\n[Resposta interrompida. Tente novamente.]");if(partial)throw Object.assign(new Error("Resposta interrompida."),{partial:true});throw e;}
+    finally { nodiaPending.current = false; setNodiaBusy(false); setNodiaDraft(""); }
   }, [update]);
 
   // ---------- recebimento ----------
@@ -1315,7 +1319,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(
     () => ({
-      nodiaBusy, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic,
+      nodiaBusy, nodiaDraft, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic,
       clearOnboarding: () => setOnb(null),
       clearNotice: () => setNotice(null),
       createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
@@ -1324,7 +1328,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
-    [nodiaBusy, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+    [nodiaBusy, nodiaDraft, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, profileSyncStatus, sendReaction, sendText, sendImage, markRead, report, listCases, appealCase, adminCase, setAutolock, deleteAccount,
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],

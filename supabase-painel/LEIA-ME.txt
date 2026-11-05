@@ -47,6 +47,15 @@ As cópias nesta pasta são geradas com node scripts/generate-dashboard.mjs. Par
 atualizar código no futuro, edite supabase/functions/ e gere novamente; não use
 arquivos antigos de report-verify ou report-decision do ZIP anterior.
 
+ATUALIZAÇÃO DE RESPOSTAS AO VIVO DA NODIA
+Publique primeiro o arquivo nodia.ts desta pasta na função nodia e depois atualize
+o site na Vercel com o projeto. Não é necessária nova migração para este recurso;
+a migração 009 continua necessária se ainda não tiver sido aplicada. Confirme no
+site publicado se os trechos aparecem aos poucos: a rede ou infraestrutura pode
+acumular a resposta. Se houver interrupção após a escrita começar, o usuário verá
+a resposta parcial identificada como interrompida. Os modelos alternativos são
+tentados antes do início da resposta, quando há tempo disponível.
+
 DIAGNÓSTICO DO ERRO 503 DA NODIA
 Publique esta versão da função nodia. No painel Supabase > Edge Functions > nodia >
 Logs, reproduza o erro e procure exclusivamente os códigos iniciados por [NODIA].

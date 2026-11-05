@@ -172,10 +172,26 @@ export async function putProfileSnapshot(jwt: string, expected: number, nonce: s
   return result.revision;
 }
 
-export async function askNodia(jwt: string, messages: {role: "user" | "assistant"; content: string}[]): Promise<string> {
-  const result = await call<{reply: string}>("nodia", {messages}, {jwt, timeoutMs: 65000});
-  if (typeof result.reply !== "string" || !result.reply.trim()) throw new ApiError(503, "Nodia indisponível");
-  return result.reply;
+/** Recebe deltas reais; versões anteriores do servidor ainda retornam JSON completo. */
+export async function askNodia(jwt: string, messages: {role: "user" | "assistant"; content: string}[], onDelta:(part:string)=>void): Promise<string> {
+  if (!SUPABASE_URL || !SUPABASE_ANON) throw new ApiError(0,"Servidor não configurado");
+  const ctl=new AbortController();const timer=window.setTimeout(()=>ctl.abort(),155_000);let reader:ReadableStreamDefaultReader<Uint8Array>|undefined;
+  try {
+    const res=await fetch(`${SUPABASE_URL}/functions/v1/nodia`,{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_ANON,Authorization:`Bearer ${jwt}`},body:JSON.stringify({messages,stream:true}),signal:ctl.signal});
+    if(!res.ok){const text=await res.text();throw new ApiError(res.status,friendly(res.status,text));}
+    if(!(res.headers.get("content-type") ?? "").includes("application/x-ndjson")){
+      const result=await res.json();if(typeof result?.reply!=="string" || !result.reply.trim())throw new ApiError(503,"Resposta inválida");onDelta(result.reply);return result.reply;
+    }
+    if(!res.body)throw new ApiError(503,"Resposta indisponível");
+    reader=res.body.getReader();const decoder=new TextDecoder();let pending="",reply="",complete=false;
+    while(true){const {value,done}=await reader.read();pending+=decoder.decode(value??new Uint8Array(),{stream:!done});if(pending.length>100_000)throw new Error("Resposta inválida");
+      const lines=pending.split("\n");pending=lines.pop()??"";if(done&&pending){lines.push(pending);pending="";}
+      for(const line of lines){if(!line.trim())continue;const e=JSON.parse(line);if(e.type==="delta"&&typeof e.text==="string"){reply+=e.text;if(reply.length>6100)throw new Error("Resposta longa demais");onDelta(e.text)}else if(e.type==="done")complete=true;else if(e.type==="error")throw new Error("Resposta interrompida");}
+      if(done)break;
+    }
+    if(!complete||!reply.trim())throw new Error("Resposta interrompida");return reply;
+  } catch(e){if(e instanceof ApiError)throw e;throw new ApiError(ctl.signal.aborted?408:503,"Resposta interrompida");}
+  finally{clearTimeout(timer);try{await reader?.cancel()}catch{}ctl.abort();}
 }
 
 export interface ModerationCase {
