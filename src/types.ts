@@ -58,6 +58,7 @@ export interface FrankInfo {
 
 export interface FileRef {
   id: string; // anexo cifrado no servidor
+  expiresAt?: string | null; // vídeos: vencimento emitido pelo servidor
   key: string; // chave XChaCha20 (só viaja dentro da mensagem cifrada)
   nonce: string;
   hash: string; // SHA-256 dos bytes cifrados
@@ -92,6 +93,7 @@ export interface Msg {
   pending?: boolean; // envio otimista ainda aguardando confirmação do relay
   reply?: { id: string; text: string };
   mentions?: string[];
+  reactions?: Record<string, { emoji: string; ts: number }>;
 }
 
 export interface Settings {
@@ -112,10 +114,16 @@ export interface Profile {
   banner?: string;
 }
 
+export interface NodiaMessage { id: string; role: "user" | "assistant"; content: string; ts: number }
+
 export interface LocalState {
   v: 1;
   mnemonic: string;
   profile: Profile;
+  pendingReactions?: import("./lib/reactions").ReactionEvent[];
+  nodiaConsent?: boolean;
+  nodiaMessages?: NodiaMessage[];
+  profileSync?: { revision: number; dirty: boolean; conflict?: boolean };
   contacts: Contact[];
   groups: Group[];
   messages: Msg[];

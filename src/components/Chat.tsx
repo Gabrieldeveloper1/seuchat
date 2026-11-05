@@ -4,7 +4,8 @@ import { msgLabel, useApp } from "../lib/store";
 import { FileMessage, LiveWave, Ring, VoicePlayer } from "./Media";
 import { sfx } from "../lib/sounds";
 import { MAX_FILE } from "../lib/files";
-import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconSmile, IconLoader, IconTrash, IconFile, IconFilm, IconImage, IconPause, IconUser, IconVideo, IconX } from "../icons";
+import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconSmile, IconSparkle, IconLoader, IconTrash, IconFile, IconFilm, IconImage, IconPause, IconUser, IconVideo, IconX } from "../icons";
+import { REACTIONS } from "../lib/reactions";
 import { TTL_OPTIONS, type Msg } from "../types";
 import { shortId } from "../lib/util";
 import { imageSendingAllowed } from "../lib/imageFilter";
@@ -200,7 +201,7 @@ function GroupDialog({ gid, onClose, toast }: { gid: string; onClose: () => void
 const PAGE = 80;
 const coarse = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
-function ChatMenu({ peer, onClose, onProfile, onGroup }: { peer: string; onClose: () => void; onProfile: () => void; onGroup: () => void }) {
+function ChatMenu({ peer, onClose, onProfile, onGroup, onAssistant }: { peer: string; onClose: () => void; onProfile: () => void; onGroup: () => void; onAssistant: () => void }) {
   const { local, userId, setContactTtl, setBlocked, updateGroup } = useApp();
   const group = peer.startsWith("g:") ? local?.groups.find((g) => g.id === peer.slice(2)) : undefined;
   const contact = group ? undefined : local?.contacts.find((c) => c.id === peer);
@@ -212,6 +213,8 @@ function ChatMenu({ peer, onClose, onProfile, onGroup }: { peer: string; onClose
       <button className="menu-item" onClick={() => { onClose(); (group ? onGroup : onProfile)(); }}>
         {group ? <IconSettings /> : <IconUser />}{group ? "Ver e editar grupo" : "Ver perfil"}
       </button>
+      <button className="menu-item" onClick={() => { onClose(); onAssistant(); }}><IconSparkle /> Perguntar à Nodia</button>
+      <p className="muted small">Nenhuma mensagem desta conversa será enviada automaticamente.</p>
       <label className="field"><span style={{ display: "flex", gap: 8, alignItems: "center" }}><IconClock /> Mensagens temporárias</span>
         <select className="input" value={ttl} disabled={!canTtl} onChange={(e) => (group ? void updateGroup(group.id, { ttl: Number(e.target.value) }) : setContactTtl(peer, Number(e.target.value)))}>
           {TTL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.value ? `Apagar ${o.label} após ler` : "Sem autodestruição"}</option>)}
@@ -227,9 +230,9 @@ function ChatMenu({ peer, onClose, onProfile, onGroup }: { peer: string; onClose
   );
 }
 
-export default function Chat({ peer, onBack, onReport, toast }: { peer: string; onBack: () => void; onReport: (m: Msg) => void; toast: (t: string) => void }) {
+export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { peer: string; onBack: () => void; onAssistant: () => void; onReport: (m: Msg) => void; toast: (t: string) => void }) {
   const app = useApp();
-  const { local, userId, activity, typing, sendActivity, sendText, sendImage, sendAudio, sendFile, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
+  const { local, userId, activity, typing, sendActivity, sendReaction, sendText, sendImage, sendAudio, sendFile, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
   const isGroup = peer.startsWith("g:");
   const contact = isGroup ? undefined : local?.contacts.find((c) => c.id === peer);
   const group = isGroup ? local?.groups.find((g) => g.id === peer.slice(2)) : undefined;
@@ -464,8 +467,10 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
                 {m.reported && <span className="reported">denunciada</span>}
               </div>
             </div>
+            {m.reactions && Object.values(m.reactions).some((r) => r.emoji) && <div className={`reaction-list ${m.dir}`} aria-label="Reações">{[...new Set(Object.values(m.reactions).map((r) => r.emoji).filter(Boolean))].map((emoji) => <button key={emoji} title="Reagir ou remover reação" onClick={() => void sendReaction(peer, m, emoji).catch((e) => toast(e instanceof Error ? e.message : "Não foi possível reagir"))}>{emoji} {Object.values(m.reactions!).filter((r) => r.emoji === emoji).length}</button>)}</div>}
             {sel === m.id && (
               <div className={`msg-actions ${m.dir}`}>
+                <div className="reaction-picker" aria-label="Reagir à mensagem">{REACTIONS.map((emoji) => <button key={emoji} aria-label={`Reagir com ${emoji}`} disabled={m.pending} onClick={() => { void sendReaction(peer, m, emoji).catch((e) => toast(e instanceof Error ? e.message : "Não foi possível reagir")); setSel(null); }}>{emoji}</button>)}</div>
                 <button onClick={() => { setReplyTo(m); setSel(null); ta.current?.focus(); }}><IconReply /> Responder</button>
                 {m.dir === "in" && m.frank && !m.reported && <button className="bad" onClick={() => { setSel(null); onReport(m); }}><IconFlag /> Denunciar</button>}
                 <button className="bad" onClick={() => { deleteMessage(m.id); setSel(null); }}><IconTrash /> Apagar</button>
@@ -541,7 +546,7 @@ export default function Chat({ peer, onBack, onReport, toast }: { peer: string; 
           </>
         )}
       </div>
-      {dlg === "menu" && <ChatMenu peer={peer} onClose={() => setDlg(null)} onProfile={() => setDlg("profile")} onGroup={() => setDlg("group")} />}
+      {dlg === "menu" && <ChatMenu peer={peer} onAssistant={onAssistant} onClose={() => setDlg(null)} onProfile={() => setDlg("profile")} onGroup={() => setDlg("group")} />}
       {dlg === "profile" && contact && <ProfileDialog id={contact.id} onClose={() => setDlg(null)} />}
       {dlg === "group" && group && <GroupDialog gid={group.id} onClose={() => setDlg(null)} toast={toast} />}
     </>

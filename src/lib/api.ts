@@ -144,9 +144,13 @@ export async function getTurnIceServers(jwt: string): Promise<RTCIceServer[]> {
   return result.iceServers;
 }
 
-export interface UploadTicket { id: string; path: string; token: string; signedUrl: string }
-export async function requestUpload(jwt: string, size: number): Promise<UploadTicket> {
-  return call("attachments", { op: "upload", size }, { jwt, retries: 1, timeoutMs: 20_000 });
+export interface UploadTicket { id: string; path: string; token: string; signedUrl: string; expiresAt: string | null }
+export async function requestUpload(jwt: string, size: number, kind: "video" | "file", recipients: string[]): Promise<UploadTicket> {
+  try { return await call("attachments", { op: "upload", size, kind, recipients }, { jwt, timeoutMs: 20_000 }); }
+  catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 0)) throw new ApiError(e.status, "Serviço de anexos indisponível. Verifique a conexão e a publicação da função attachments.", e.raw);
+    throw e;
+  }
 }
 export async function requestDownload(jwt: string, id: string): Promise<string> {
   const r = await call<{ url: string }>("attachments", { op: "download", id }, { jwt, retries: 2, timeoutMs: 15_000 });
@@ -156,4 +160,20 @@ export async function requestDownload(jwt: string, id: string): Promise<string> 
 export interface NewsItem { title: string; link: string; source: string; date: number; summary?: string; image?: string }
 export async function getNews(jwt: string, cat: string): Promise<{ items: NewsItem[]; updatedAt: number }> {
   return call("news", { cat }, { jwt, retries: 1, timeoutMs: 20_000 });
+}
+
+export interface ProfileSnapshot { revision: number; nonce: string; ciphertext: string }
+export async function getProfileSnapshot(jwt: string): Promise<ProfileSnapshot | null> {
+  const result = await call<{ snapshot: ProfileSnapshot | null }>("profile-sync", { op: "get" }, { jwt, timeoutMs: 15_000 });
+  return result.snapshot;
+}
+export async function putProfileSnapshot(jwt: string, expected: number, nonce: string, ciphertext: string): Promise<number> {
+  const result = await call<{ revision: number }>("profile-sync", { op: "put", expected, nonce, ciphertext }, { jwt, timeoutMs: 15_000 });
+  return result.revision;
+}
+
+export async function askNodia(jwt: string, messages: {role: "user" | "assistant"; content: string}[]): Promise<string> {
+  const result = await call<{reply: string}>("nodia", {messages}, {jwt, timeoutMs: 65000});
+  if (typeof result.reply !== "string" || !result.reply.trim()) throw new ApiError(503, "Nodia indisponível");
+  return result.reply;
 }

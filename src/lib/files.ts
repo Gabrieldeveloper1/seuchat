@@ -1,5 +1,5 @@
 import sodium from "libsodium-wrappers-sumo";
-import { requestDownload, requestUpload } from "./api";
+import { SUPABASE_ANON, requestDownload, requestUpload } from "./api";
 import { grayOf, imageSendingAllowed, isBlocked, pdqFromGray } from "./imageFilter";
 import { fromB64, toB64 } from "./util";
 import type { FileRef } from "../types";
@@ -29,6 +29,7 @@ function putWithProgress(url: string, body: Uint8Array, onProgress?: (p: number)
     x.open("PUT", url);
     x.setRequestHeader("Content-Type", "application/octet-stream");
     x.setRequestHeader("x-upsert", "false");
+    x.setRequestHeader("apikey", SUPABASE_ANON);
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => (x.status >= 200 && x.status < 300 ? res() : rej(new Error("Falha ao enviar o arquivo")));
     x.onerror = () => rej(new Error("Sem conexão para enviar o arquivo"));
@@ -37,21 +38,22 @@ function putWithProgress(url: string, body: Uint8Array, onProgress?: (p: number)
 }
 
 /** Cifra o arquivo no aparelho (XChaCha20-Poly1305) e envia só os bytes cifrados. */
-export async function uploadEncrypted(jwt: string, data: Uint8Array, onProgress?: (p: number) => void) {
+export async function uploadEncrypted(jwt: string, data: Uint8Array, kind: "video" | "file", recipients: string[], onProgress?: (p: number) => void) {
   await sodium.ready;
   const key = sodium.crypto_aead_xchacha20poly1305_ietf_keygen();
   const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
   const cipher = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(data, null, null, nonce, key);
   if (cipher.length > MAX_FILE) throw new Error("Arquivo grande demais (máximo 25 MB).");
-  const ticket = await requestUpload(jwt, cipher.length);
+  const ticket = await requestUpload(jwt, cipher.length, kind, recipients);
   await putWithProgress(ticket.signedUrl, cipher, onProgress);
-  return { id: ticket.id, key: toB64(key), nonce: toB64(nonce), hash: await sha256(cipher) };
+  return { id: ticket.id, expiresAt: ticket.expiresAt, key: toB64(key), nonce: toB64(nonce), hash: await sha256(cipher) };
 }
 
 const cache = new Map<string, string>();
 
 /** Baixa, confere a integridade e decifra. Devolve uma URL local (blob:) */
 export async function downloadDecrypted(jwt: string, f: FileRef, onProgress?: (p: number) => void): Promise<string> {
+  if (f.expiresAt && Date.now() >= Date.parse(f.expiresAt)) { const cached = cache.get(f.id); if (cached) URL.revokeObjectURL(cached); cache.delete(f.id); throw new Error("Vídeo expirado após 10 dias."); }
   const hit = cache.get(f.id);
   if (hit) return hit;
   const url = await requestDownload(jwt, f.id);

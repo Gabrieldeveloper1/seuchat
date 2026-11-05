@@ -1,12 +1,14 @@
 # SeuChatSeguro
 
+> **Atualização:** leia [LEIA-ANTES-DE-PUBLICAR.md](LEIA-ANTES-DE-PUBLICAR.md) para as migrações 007 e 008, implantação, retenção e limitações de segurança. As notas antigas sobre anexos são substituídas por esse documento.
+
 Mensageiro web privado (E2EE) com Supabase. React + TypeScript + Vite. Fonte **Inter** local e ícones **SVG** inline.
 
 > **Status:** app web com identificadores próprios, grupos com cargos, menções e chamadas em malha. TURN e lista assinada de hashes precisam ser configurados antes de publicar recursos que dependem deles.
 
 ## 1. Configurar o Supabase
 1. Crie um projeto em supabase.com.
-2. Rode `supabase/migrations/001_schema.sql`, `002_identity_lookup_realtime.sql`, `005_app_number_directory.sql` e `006_attachments.sql` (SQL Editor ou `supabase db push`).
+2. Rode `supabase/migrations/001_schema.sql`, `002_identity_lookup_realtime.sql`, `005_app_number_directory.sql`, `006_attachments.sql`, `007_attachment_retention.sql` e `008_profile_and_attachment_access.sql` (SQL Editor ou `supabase db push`).
 3. `npm install && npm run keys` e copie os valores gerados.
 4. Defina os segredos das Edge Functions:
    ```
@@ -14,7 +16,7 @@ Mensageiro web privado (E2EE) com Supabase. React + TypeScript + Vite. Fonte **I
    ```
    `JWT_SECRET` precisa ser **o mesmo JWT Secret do projeto** (Project Settings → API), senão a RLS não aceita o token.
 5. Para ocultar IP nas chamadas, configure um TURN compatível com credenciais REST (por exemplo, Coturn com `use-auth-secret`) e defina no Supabase `TURN_URL` e `TURN_SHARED_SECRET`. Gere um segredo forte (ex.: `openssl rand -hex 32`) e mantenha-o apenas no servidor.
-6. Publique cada função separadamente: `for f in register login send-message report-verify delete-account app-number app-number-lookup turn-credentials attachments news; do supabase functions deploy "$f"; done`. `phone-link` e `phone-lookup` são legadas e não são usadas pelo app.
+6. Publique cada função separadamente: `for f in register login send-message report-verify delete-account app-number app-number-lookup turn-credentials attachments cleanup-attachments profile-sync news; do supabase functions deploy "$f"; done`. `phone-link` e `phone-lookup` são legadas e não são usadas pelo app.
 
 ## 2. Rodar o site
 ```
@@ -77,7 +79,7 @@ Lojas: denúncia no app (já existe), bloqueio de usuário (já existe), exclus�
 
 ## Novidades e limites desta versão
 
-- **Arquivos e vídeos:** anexos são cifrados no aparelho antes do envio ao bucket privado. A migração 006 e a função `attachments` precisam estar publicadas. O limite é 25 MB de dados cifrados; o acesso a anexos expira após 30 dias. A remoção física é oportunista, durante novos uploads do mesmo dono, e não é garantida imediatamente; para retenção rigorosa configure uma limpeza agendada no servidor. O download usa UUID não sequencial e autenticação, mas ainda não valida se o usuário é destinatário: revise a autorização antes de produção. Limites de envio também não são atômicos.
+- **Arquivos e vídeos:** novos vídeos expiram em 10 dias; documentos não expiram automaticamente. Consulte `LEIA-ANTES-DE-PUBLICAR.md` para ativar o agendador, conhecer limitações e riscos.
 - **Vídeos:** a checagem usa amostras de quadros e a lista de imagens configurada; não examina todo o conteúdo e não garante detecção. Arquivos arbitrários e áudios não passam por análise de conteúdo. Não trate o filtro como solução completa de moderação.
 - **Hoje:** a função `news` busca notícias; o Open-Meteo fornece clima e busca de cidade. A localização atual depende de permissão. Abrir uma notícia acessa o site de origem.
 - **Música:** Audius oferece faixas públicas; a busca iTunes oferece prévias. Disponibilidade e compatibilidade variam e os serviços externos recebem o IP. A CSP restringe mídia e imagens aos domínios configurados; faixas ou capas hospedadas em outros domínios podem não funcionar. Analise cada domínio adicional antes de autorizá-lo.

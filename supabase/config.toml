@@ -25,3 +25,10 @@ verify_jwt = false
 verify_jwt = false
 [functions.news]
 verify_jwt = false
+[functions.cleanup-attachments]
+verify_jwt = false
+[functions.profile-sync]
+verify_jwt = false
+
+[functions.nodia]
+verify_jwt = false

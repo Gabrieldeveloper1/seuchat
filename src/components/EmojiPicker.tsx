@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type SVGProps } from "react";
 import { EMOJI_GROUPS, TONEABLE } from "../lib/emojiData";
+import spriteData from "../lib/emojiSprites.json";
+const sprites: Record<string, (string | number)[]> = spriteData;
+function Glyph({ ch }: { ch: string }) {
+  const sprite = sprites[ch];
+  if (!sprite) return <span aria-hidden>{ch}</span>;
+  return <span aria-hidden className="emoji-glyph" style={{ backgroundImage: `url(/emoji/${sprite[0]}.webp)`, backgroundPosition: `-${Number(sprite[1]) * 32}px -${Number(sprite[2]) * 32}px` }} />;
+}
 import { IconBall, IconBulb, IconClock, IconFlagSolid, IconFood, IconHand, IconHeart, IconLeaf, IconPlane, IconSearch, IconSmile, IconX } from "../icons";
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
@@ -12,34 +19,8 @@ const TONE_KEY = "scs.emoji.tone";
 const DATA = EMOJI_GROUPS.map((g) => {
   const e = g.e.split("\u0001");
   const n = g.n.split("\u0001");
-  return { key: g.key, label: g.label, items: e.map((ch, i) => ({ ch, name: n[i] ?? "" })) };
+  return { key: g.key, label: g.label, items: e.map((ch, i) => ({ ch, name: n[i] ?? "" })).filter((item) => !!sprites[item.ch]) };
 });
-
-/** Esconde emojis que o aparelho ainda não sabe desenhar (evita quadrados vazios). */
-let supportCache: Set<string> | null = null;
-function supportedSet(): Set<string> | null {
-  if (supportCache) return supportCache;
-  try {
-    const c = document.createElement("canvas");
-    c.width = c.height = 32;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return null;
-    ctx.font = '24px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-    ctx.textBaseline = "top";
-    const ref = ctx.measureText("\u{1F600}").width || 24;
-    const ok = new Set<string>();
-    for (const g of DATA) for (const { ch } of g.items) {
-      if (ctx.measureText(ch).width > ref * 1.35) continue; // sequência ZWJ não combinada
-      ctx.clearRect(0, 0, 32, 32);
-      ctx.fillText(ch, 2, 2);
-      const d = ctx.getImageData(0, 0, 32, 32).data;
-      let painted = false;
-      for (let i = 0; i < d.length; i += 16) if (d[i + 3] > 40) { painted = true; break; }
-      if (painted) ok.add(ch);
-    }
-    return (supportCache = ok.size > 200 ? ok : null);
-  } catch { return null; }
-}
 
 function withTone(ch: string, tone: number): string {
   if (!tone) return ch;
@@ -72,33 +53,19 @@ export default function EmojiPicker({ onPick, onClose }: { onPick: (emoji: strin
   }, [onClose]);
 
   const term = q.trim().toLowerCase();
-  const results = useMemo(() => term ? DATA.flatMap((g) => g.items).filter((i) => i.name.toLowerCase().includes(term) && (!supportCache || supportCache.has(i.ch))).slice(0, 240) : [], [term]);
+  const results = useMemo(() => term ? DATA.flatMap((g) => g.items).filter((i) => i.name.toLowerCase().includes(term)).slice(0, 240) : [], [term]);
 
   function pick(ch: string) {
-    const out = withTone(ch, tone);
+    const tinted = withTone(ch, tone);
+    const out = sprites[tinted] ? tinted : ch;
     onPick(out);
     const next = [ch, ...recent.filter((r) => r !== ch)].slice(0, 32);
     setRecent(next);
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* armazenamento indisponível */ }
   }
-  function jump(key: string) {
-    setCat(key);
-    setQ("");
-    requestAnimationFrame(() => body.current?.querySelector(`[data-sec="${key}"]`)?.scrollIntoView({ block: "start" }));
-  }
-  function onScroll() {
-    const el = body.current;
-    if (!el || term) return;
-    const secs = [...el.querySelectorAll<HTMLElement>("[data-sec]")];
-    const top = el.scrollTop + 8;
-    let cur = secs[0]?.dataset.sec ?? "smileys";
-    for (const s of secs) if (s.offsetTop <= top) cur = s.dataset.sec!;
-    if (cur !== cat) setCat(cur);
-  }
-
-  const sup = useMemo(supportedSet, []);
-  const okCh = (ch: string) => !sup || sup.has(ch);
-  const sections = [...(recent.length ? [{ key: "recent", label: "Recentes", items: recent.map((ch) => ({ ch, name: "" })) }] : []), ...DATA.map((g) => ({ ...g, items: g.items.filter((i) => okCh(i.ch)) }))];
+  function jump(key: string) { setCat(key); setQ(""); if (body.current) body.current.scrollTop = 0; }
+  const sections = [...(recent.length ? [{ key: "recent", label: "Recentes", items: recent.filter((ch) => !!sprites[ch]).map((ch) => ({ ch, name: ch })) }] : []), ...DATA];
+  const current = sections.find((s) => s.key === cat) ?? sections[0];
 
   return (
     <div className="emoji-pop" ref={box} role="dialog" aria-label="Emojis">
@@ -125,16 +92,13 @@ export default function EmojiPicker({ onPick, onClose }: { onPick: (emoji: strin
           <button type="button" key={s.key} title={s.label} aria-label={s.label} className={!term && cat === s.key ? "on" : ""} onClick={() => jump(s.key)}><I /></button>
         ); })}
       </nav>
-      <div className="emoji-body" ref={body} onScroll={onScroll}>
+      <div className="emoji-body" ref={body}>
         {term ? (
-          results.length ? <div className="emoji-grid">{results.map((i) => <button type="button" key={i.ch} title={i.name} onClick={() => pick(i.ch)}>{withTone(i.ch, tone)}</button>)}</div>
+          results.length ? <div className="emoji-grid">{results.map((i) => <button type="button" key={i.ch} title={i.name} onClick={() => pick(i.ch)}><Glyph ch={sprites[withTone(i.ch, tone)] ? withTone(i.ch, tone) : i.ch} /></button>)}</div>
             : <div className="emoji-empty"><IconSmile /><span>Nenhum emoji encontrado</span></div>
-        ) : sections.map((s) => (
-          <section key={s.key} data-sec={s.key}>
-            <h4>{s.label}</h4>
-            <div className="emoji-grid">{s.items.map((i) => <button type="button" key={i.ch} title={i.name} onClick={() => pick(i.ch)}>{withTone(i.ch, tone)}</button>)}</div>
-          </section>
-        ))}
+        ) : (
+          <section key={current.key}><h4>{current.label}</h4><div className="emoji-grid">{current.items.map((i) => <button type="button" key={i.ch} title={i.name} aria-label={i.name || i.ch} onClick={() => pick(i.ch)}><Glyph ch={sprites[withTone(i.ch, tone)] ? withTone(i.ch, tone) : i.ch} /></button>)}</div></section>
+        )}
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import Welcome from "./pages/Welcome";
 import Unlock from "./pages/Unlock";
 import Mnemonic from "./pages/Mnemonic";
 import Main from "./pages/Main";
+import TermsPage from "./pages/TermsPage";
 const Moderation = lazy(() => import("./pages/Moderation"));
 import CallOverlay from "./components/CallOverlay";
 import { Logo } from "./icons";
@@ -56,9 +57,9 @@ function useAutolock(minutes: number, enabled: boolean, lock: () => void) {
 
 export default function App() {
   const app = useApp();
-  const [isMod, setIsMod] = useState(location.hash.startsWith("#/mod"));
+  const [route, setRoute] = useState(location.hash);
   useEffect(() => {
-    const f = () => setIsMod(location.hash.startsWith("#/mod"));
+    const f = () => setRoute(location.hash);
     window.addEventListener("hashchange", f);
     return () => window.removeEventListener("hashchange", f);
   }, []);
@@ -83,7 +84,8 @@ export default function App() {
   useAutolock(app.local?.settings.autolockMin ?? 0, inApp && app.call.phase === "idle", app.lock);
 
   let body;
-  if (isMod) return <Suspense fallback={<Splash label="Abrindo moderação" />}><Moderation /></Suspense>;
+  if (route.startsWith("#/terms")) return <TermsPage />;
+  if (route.startsWith("#/mod")) return <Suspense fallback={<Splash label="Abrindo moderação" />}><Moderation /></Suspense>;
   if (app.phase === "boot") body = <Splash />;
   else if (app.phase === "welcome") body = <Welcome />;
   else if (app.phase === "locked") body = <Unlock />;

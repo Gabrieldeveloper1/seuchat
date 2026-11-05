@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
 import { IconLock, IconPhone, IconZap, Wordmark, IconLoader } from "../icons";
-import Terms from "../components/Terms";
 import PasswordInput from "../components/PasswordInput";
 import { isValidMnemonic } from "../lib/crypto";
 
@@ -12,7 +11,6 @@ export default function Welcome() {
   const [pass, setPass] = useState("");
   const [words, setWords] = useState<string[]>(Array(12).fill(""));
   const [ok, setOk] = useState(false);
-  const [terms, setTerms] = useState(false);
   const [localErr, setLocalErr] = useState<string | null>(null);
 
   function setWord(i: number, v: string) {
@@ -41,11 +39,11 @@ export default function Welcome() {
       <section className="hero">
         <div className="logo"><Wordmark /></div>
         <span className="hero-kicker">Mensageiro privado · Criptografia de ponta a ponta</span>
-        <h1>Privacidade com <em>classe</em>.<br />Conversas que pertencem só a você.</h1>
+        <h1>Seu espaço para <em>conversar</em>.<br />Com privacidade, sempre.</h1>
         <ul>
           <li><span><IconLock /></span> Criptografia de ponta a ponta em cada mensagem</li>
           <li><span><IconPhone /></span> Encontre amigos pelo seu número exclusivo do app</li>
-          <li><span><IconZap /></span> Conta em 20 segundos: nome e senha, só isso</li>
+          <li><span><IconZap /></span> Comece com seu nome e uma senha</li>
         </ul>
       </section>
 
@@ -54,7 +52,7 @@ export default function Welcome() {
           <div>
             <h2>{tab === "new" ? "Criar sua conta" : "Entrar em outro aparelho"}</h2>
             <p className="muted small" style={{ margin: "4px 0 0" }}>
-              {tab === "new" ? "Leva menos de um minuto." : "Use as 12 palavras de recuperação para trazer sua conta."}
+              {tab === "new" ? "Crie sua conta para começar." : "Use as 12 palavras de recuperação para trazer sua conta."}
             </p>
           </div>
           <div className="tabs" role="tablist">
@@ -85,7 +83,7 @@ export default function Welcome() {
           <label className="check">
             <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} />
             <span>Tenho 18 anos ou mais e aceito os{" "}
-              <a href="#termos" onClick={(e) => { e.preventDefault(); setTerms(true); }}>Termos</a>.
+              <a href="#/terms" target="_blank" rel="noopener noreferrer">Termos e Privacidade</a>.
             </span>
           </label>
           {(localErr || error) && <div className="error" role="alert">{localErr || error}</div>}
@@ -94,7 +92,6 @@ export default function Welcome() {
           </button>
         </form>
       </section>
-      {terms && <Terms onClose={() => setTerms(false)} />}
     </div>
   );
 }

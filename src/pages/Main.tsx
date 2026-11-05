@@ -1,12 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { msgLabel, useApp } from "../lib/store";
-import Today from "./Today";
-import Music, { MiniPlayer } from "./Music";
 import { sfx, soundEnabled, setSoundEnabled } from "../lib/sounds";
 import Chat from "../components/Chat";
+import NodiaChat from "../components/NodiaChat";
 import Dialog from "../components/Dialog";
-import Terms from "../components/Terms";
-import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconHash, IconImage, IconInfo, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconMusic, IconNews, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo } from "../icons";
+import { IconBell, IconCamera, IconChat, IconChevronRight, IconClock, IconCopy, IconDevice, IconFileText, IconFingerprint, IconHash, IconImage, IconKey, IconLock, IconLoader, IconLogout, IconMoon, IconPalette, IconPlus, IconQr, IconSearch, IconSettings, IconShield, IconShieldCheck, IconSparkle, IconSun, IconTrash, IconUser, IconUsers, IconWifiOff, Logo } from "../icons";
 const QrDialog = lazy(() => import("../components/QrDialog"));
 import { profileImage } from "../lib/media";
 import { turnConfigured } from "../lib/callEngine";
@@ -132,7 +130,7 @@ function NewGroup({ onClose, onCreated }: { onClose: () => void; onCreated: (gid
 }
 
 function ProfileImages() {
-  const { local, userId, setProfileImages } = useApp();
+  const { local, userId, setProfileImages, resolveProfileConflict } = useApp();
   const av = useRef<HTMLInputElement>(null);
   const bn = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -158,6 +156,14 @@ function ProfileImages() {
         {pr?.banner && <button className="btn ghost" onClick={() => setProfileImages(undefined, null)}>Remover banner</button>}
       </div>
       <span className="muted small">Seus contatos aceitos veem a foto e o banner.</span>
+      <div className="profile-sync" role="status">
+        <b>Sincronização do perfil</b>
+        <span>{local?.profileSync?.conflict ? "O perfil foi alterado em outro aparelho. Escolha qual versão manter." : local?.profileSync?.dirty ? "Alterações aguardando sincronização." : local?.profileSync?.revision ? "Nome, foto e banner sincronizados entre aparelhos." : "Aguardando conexão para sincronizar o perfil."}</span>
+        {local?.profileSync?.conflict && <div className="row-btns">
+          <button className="btn sm" onClick={() => { if (confirm("Substituir o perfil salvo no servidor pela versão deste aparelho?")) void resolveProfileConflict("local"); }}>Manter deste aparelho</button>
+          <button className="btn sm" onClick={() => { if (confirm("Substituir o perfil deste aparelho pela versão salva no servidor?")) void resolveProfileConflict("server"); }}>Usar versão do servidor</button>
+        </div>}
+      </div>
       {err && <div className="error">{err}</div>}
     </div>
   );
@@ -208,6 +214,8 @@ function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () 
   const [sounds, setSounds] = useState(soundEnabled);
   const [showWords, setShowWords] = useState(false);
   const [name, setName] = useState(local?.profile.name ?? "");
+  const nameEditing = useRef(false);
+  useEffect(() => { if (!nameEditing.current) setName(local?.profile.name ?? ""); }, [local?.profile.name]);
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -232,7 +240,7 @@ function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () 
               <ProfileImages />
               <div className="set-group">
                 <label className="set-field"><span>Nome de exibição</span>
-                  <input className="input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} onBlur={() => setProfileName(name)} placeholder="Seu nome" />
+                  <input className="input" value={name} maxLength={40} onChange={(e) => { nameEditing.current = true; setName(e.target.value); }} onBlur={() => { if (nameEditing.current) setProfileName(name); else setName(local?.profile.name ?? ""); nameEditing.current = false; }} placeholder="Seu nome" />
                 </label>
               </div>
               <div className="set-group">
@@ -273,7 +281,7 @@ function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () 
           {sec === "aparencia" && (
             <>
               <div className="theme-pick">
-                {([["dark", "Black Chique", "Preto profundo com detalhes dourados", IconMoon], ["light", "Marfim", "Claro, suave e elegante", IconSun]] as const).map(([v, t, d, I]) => {
+                {([["dark", "Black", "Escuro e discreto", IconMoon], ["light", "White", "Claro e minimalista", IconSun]] as const).map(([v, t, d, I]) => {
                   const on = v === "light" ? isLight : !isLight;
                   return (
                     <button key={v} className={`theme-card ${v} ${on ? "on" : ""}`} onClick={() => setTheme(v)} aria-pressed={on}>
@@ -312,7 +320,6 @@ function SettingsDialog({ onClose, onTerms, initial = "perfil" }: { onClose: () 
               </div>
             </>
           )}
-          <div className="set-ver"><IconInfo /> versão Black</div>
         </div>
       </div>
     </Dialog>
@@ -329,9 +336,9 @@ type Filter = "all" | "contacts" | "groups";
 export default function Main() {
   const { local, online, notice, clearNotice, reconnect, userId, addContact, call } = useApp();
   const [active, setActive] = useState<string | null>(hashKey);
-  const [pane, setPane] = useState<"today" | "music" | null>(null);
+  const [assistant, setAssistant] = useState(() => location.hash === "#/assistant");
   const [filter, setFilter] = useState<Filter>("all");
-  const [dlg, setDlg] = useState<"add" | "settings" | "terms" | "group" | "qr" | null>(null);
+  const [dlg, setDlg] = useState<"add" | "settings" | "group" | "qr" | null>(null);
   const [setSecInit, setSetSecInit] = useState<Sec>("perfil");
   const openSettings = (s: Sec = "perfil") => { setSetSecInit(s); setDlg("settings"); };
   const [rep, setRep] = useState<Msg | null>(null);
@@ -348,21 +355,29 @@ export default function Main() {
 
   // ---- navegação: cada conversa tem URL (#/c/<id>); o botão "voltar" do celular/navegador fecha a conversa ----
   useEffect(() => {
-    const sync = () => { const k = hashKey(); if (!k) pushed.current = false; setActive(k); };
+    const sync = () => { const k = hashKey(); const ai = location.hash === "#/assistant"; if (!k && !ai) pushed.current = false; setActive(k); setAssistant(ai); };
     window.addEventListener("hashchange", sync);
     window.addEventListener("popstate", sync);
     return () => { window.removeEventListener("hashchange", sync); window.removeEventListener("popstate", sync); };
   }, []);
   const openChat = useCallback((k: string) => {
-    setPane(null);
     const url = `#/c/${encodeURIComponent(k)}`;
     if (hashKey()) history.replaceState(null, "", url); // trocar de conversa não empilha histórico
     else { pushed.current = true; location.hash = url; }
-    setActive(k);
+    setActive(k); setAssistant(false);
   }, []);
   const closeChat = useCallback(() => {
     if (pushed.current) { pushed.current = false; history.back(); }
     else { history.replaceState(null, "", location.pathname + location.search); setActive(null); }
+  }, []);
+
+  const openAssistant = useCallback(() => {
+    if (location.hash !== "#/assistant") { pushed.current = true; location.hash = "#/assistant"; }
+    setActive(null); setAssistant(true);
+  }, []);
+  const closeAssistant = useCallback(() => {
+    if (pushed.current) { pushed.current = false; history.back(); }
+    else { history.replaceState(null, "", location.pathname + location.search); setAssistant(false); }
   }, []);
 
   // link de convite (#/add?id=...) e avisos da chamada
@@ -418,16 +433,15 @@ export default function Main() {
   const filters: { v: Filter; t: string }[] = [{ v: "all", t: "Conversas" }, { v: "contacts", t: "Contatos" }, { v: "groups", t: "Grupos" }];
 
   return (
-    <div className={`app ${activeKey || pane ? "chat-open" : ""}`}>
+    <div className={`app ${activeKey || assistant ? "chat-open" : ""}`}>
       <nav className="rail" aria-label="Menu">
         <span className="rail-logo"><Logo size={40} /></span>
         {([["all", "Conversas", IconChat], ["contacts", "Contatos", IconUser], ["groups", "Grupos", IconUsers]] as const).map(([v, t, I]) => (
-          <button key={v} className={`rail-btn ${!pane && filter === v ? "on" : ""}`} onClick={() => { setPane(null); setFilter(v); }} title={t} aria-label={t} aria-current={!pane && filter === v ? "page" : undefined}>
+          <button key={v} className={`rail-btn ${!assistant && filter === v ? "on" : ""}`} onClick={() => { setFilter(v); if (assistant) closeAssistant(); }} title={t} aria-label={t} aria-current={!assistant && filter === v ? "page" : undefined}>
             <I />{v === "all" && totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}<span className="rail-tip">{t}</span>
           </button>
         ))}
-        <button className={`rail-btn ${pane === "today" ? "on" : ""}`} onClick={() => setPane("today")} aria-label="Hoje"><IconNews /><span className="rail-tip">Hoje</span></button>
-        <button className={`rail-btn ${pane === "music" ? "on" : ""}`} onClick={() => setPane("music")} aria-label="Música"><IconMusic /><span className="rail-tip">Música</span></button>
+        <button className={`rail-btn ${assistant ? "on" : ""}`} onClick={openAssistant} title="Assistente IA" aria-label="Assistente IA" aria-current={assistant ? "page" : undefined}><IconSparkle /><span className="rail-tip">Assistente IA</span></button>
         <button className="rail-btn" onClick={() => setDlg("qr")} title="QR code" aria-label="QR code"><IconQr /><span className="rail-tip">QR code</span></button>
         <span className="rail-space" />
         <button className="rail-btn" onClick={() => openSettings("aparencia")} title="Aparência" aria-label="Aparência"><IconPalette /><span className="rail-tip">Aparência</span></button>
@@ -496,27 +510,24 @@ export default function Main() {
         <button className="fab" aria-label="Novo contato" onClick={() => setDlg("add")}><IconPlus /></button>
         <nav className="tabbar" aria-label="Navegação principal" style={{ ["--i" as string]: 0 }}>
           <span className="tab-ink" aria-hidden />
-          <button className="tab on" onClick={() => { setPane(null); setFilter("all"); }} aria-current="page"><IconChat />Conversas{totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}</button>
-          <button className="tab" onClick={() => setPane("today")}><IconNews />Hoje</button>
-          <button className="tab" onClick={() => setPane("music")}><IconMusic />Música</button>
-          <button className="tab" onClick={() => openSettings()}><IconSettings />Ajustes</button>
+          <button className="tab on" onClick={() => { setFilter("all"); }} aria-current="page"><IconChat />Conversas{totalUnread > 0 && <span className="dot">{totalUnread > 99 ? "99+" : totalUnread}</span>}</button>
+          <button className="tab" onClick={openAssistant}><IconSparkle />Assistente IA</button>
+          <button className="tab" onClick={() => openSettings("perfil")}><IconUser />Perfil</button><button className="tab" onClick={() => openSettings()}><IconSettings />Ajustes</button>
         </nav>
       </aside>
 
       <main className="main">
-        {pane === "today" ? <Today onBack={() => setPane(null)} name={me} /> : pane === "music" ? <Music onBack={() => setPane(null)} /> : activeKey ? (
-          <Chat key={activeKey} peer={activeKey} onBack={closeChat} onReport={setRep} toast={toast} />
+        {assistant ? <NodiaChat onBack={closeAssistant} /> : activeKey ? (
+          <Chat key={activeKey} peer={activeKey} onBack={closeChat} onAssistant={openAssistant} onReport={setRep} toast={toast} />
         ) : (
           <div className="placeholder welcome-pane"><IconChat style={{ width: 56, height: 56 }} /><div><b>Suas conversas</b><span>Selecione uma conversa para começar.</span></div><div className="pane-feats"><span><IconLock /> Ponta a ponta</span><span><IconShieldCheck /> Privacidade</span></div></div>
         )}
       </main>
 
-      <MiniPlayer />
       {dlg === "add" && <AddContact onClose={() => setDlg(null)} />}
       {dlg === "qr" && <Suspense fallback={null}><QrDialog onClose={() => setDlg(null)} toast={toast} /></Suspense>}
       {dlg === "group" && <NewGroup onClose={() => setDlg(null)} onCreated={openChat} />}
-      {dlg === "settings" && <SettingsDialog initial={setSecInit} onClose={() => setDlg(null)} onTerms={() => setDlg("terms")} />}
-      {dlg === "terms" && <Terms onClose={() => setDlg(null)} />}
+      {dlg === "settings" && <SettingsDialog initial={setSecInit} onClose={() => setDlg(null)} onTerms={() => { location.hash = "#/terms"; }} />}
       {rep && <ReportDialog msg={rep} onClose={() => setRep(null)} toast={toast} />}
       {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
     </div>

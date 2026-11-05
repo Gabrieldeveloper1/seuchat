@@ -7,9 +7,11 @@ import { isValidMnemonic, keysFromMnemonic, newMnemonic, normalizeMnemonic, type
 import { normalizeAppNumber } from "./phone";
 import { createVault, openVault, saveVault, vaultExists, wipeVault, type VaultHandle } from "./vault";
 import { startSession, fetchIdentity, type RelayRow, type Session } from "./session";
-import { ApiError, getNews, type NewsItem, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers } from "./api";
+import { ApiError, getNews, type NewsItem, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers, getProfileSnapshot, putProfileSnapshot, askNodia } from "./api";
 import { buildReport, frankMessage, verifyIncoming, type ReportPayload } from "./franking";
 import { dataUrlIsBlocked, imageSendingAllowed, loadBlocklist, prepareImage } from "./imageFilter";
+import { decryptProfile, encryptProfile, profileFingerprint } from "./profileSync";
+import { applyReaction, REACTIONS, type ReactionEvent } from "./reactions";
 import { MAX_FILE, downloadDecrypted, uploadEncrypted, videoFramesBlocked, videoInfo } from "./files";
 
 export function msgLabel(m: Pick<Msg, "kind" | "file">): string {
@@ -22,6 +24,10 @@ export function msgLabel(m: Pick<Msg, "kind" | "file">): string {
 export type Phase = "boot" | "welcome" | "locked" | "app";
 
 interface Ctx {
+  nodiaBusy: boolean;
+  consentNodia(): void;
+  clearNodia(): void;
+  sendNodia(text: string): Promise<void>;
   phase: Phase;
   local: LocalState | null;
   userId: string | null;
@@ -38,6 +44,7 @@ interface Ctx {
   createAccount(name: string, pass: string): Promise<void>;
   addContactByNumber(appNumber: string, alias: string): Promise<void>;
   setProfileName(name: string): void;
+  resolveProfileConflict(choice: "local" | "server"): Promise<void>;
   changePassword(oldPass: string, newPass: string): Promise<void>;
   deleteMessage(id: string): void;
   markBackupDone(): void;
@@ -52,6 +59,7 @@ interface Ctx {
   acceptContact(id: string): void;
   removeContact(id: string): void;
   setContactTtl(id: string, ttl: number): void;
+  sendReaction(peer: string, msg: Msg, emoji: string): Promise<void>;
   sendText(peer: string, text: string, reply?: Msg, mentions?: string[]): Promise<void>;
   sendImage(peer: string, file: File): Promise<void>;
   markRead(peer: string): void;
@@ -87,7 +95,7 @@ const MAX_TEXT = 8000;
 const TTLS = new Set([0, 5, 30, 300, 3600, 86400, 604800]);
 
 function emptyState(mnemonic: string, name = ""): LocalState {
-  return { v: 1, mnemonic, profile: { name }, contacts: [], groups: [], messages: [], settings: { autolockMin: 10, theme: "auto", backupDone: false, phoneMigrationRequired: false } };
+  return { v: 1, mnemonic, profile: { name }, profileSync: { revision: 0, dirty: !!name }, contacts: [], groups: [], messages: [], settings: { autolockMin: 10, theme: "auto", backupDone: false, phoneMigrationRequired: false } };
 }
 
 /** Cofres criados em versões antigas não têm perfil/tema. */
@@ -103,6 +111,7 @@ function migrate(s: LocalState): LocalState {
       audit: g.audit ?? [],
     })),
     profile,
+    profileSync: s.profileSync ?? { revision: 0, dirty: !!(profile.name || profile.avatar || profile.banner) },
     settings: {
       ...s.settings,
       theme: s.settings?.theme ?? "auto",
@@ -164,6 +173,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (vaultRef.current && localRef.current) await saveVault(vaultRef.current, localRef.current);
   }, []);
 
+  const [nodiaBusy, setNodiaBusy] = useState(false);
+  const nodiaPending = useRef(false);
+  const consentNodia = useCallback(() => update((s) => ({ ...s, nodiaConsent: true })), [update]);
+  const clearNodia = useCallback(() => { if (!nodiaPending.current) update((s) => ({ ...s, nodiaMessages: [] })); }, [update]);
+  const sendNodia = useCallback(async (input: string) => {
+    const sess = sessRef.current; const current = localRef.current; const text = input.trim();
+    if (!sess || !current || !current.nodiaConsent) throw new Error("Sessão ou consentimento indisponível.");
+    if (!text || text.length > 3000 || nodiaPending.current) throw new Error("Mensagem inválida ou envio em andamento.");
+    nodiaPending.current = true; setNodiaBusy(true);
+    try {
+      const history = (current.nodiaMessages ?? []).slice(-12).map(({role, content}) => ({role, content: content.slice(0, 3000)}));
+      while (history.reduce((n, m) => n + m.content.length, text.length) > 16000) history.shift();
+      const messages = [...history, {role: "user" as const, content: text}];
+      let reply: string;
+      try { reply = await askNodia(sess.getJwt(), messages); }
+      catch (e) { if (!(e instanceof ApiError) || e.status !== 401) throw e; await sess.refresh(); reply = await askNodia(sess.getJwt(), messages); }
+      if (sessRef.current !== sess) return;
+      const ts = Date.now();
+      update((s) => ({ ...s, nodiaMessages: [...(s.nodiaMessages ?? []), {id: crypto.randomUUID(), role: "user" as const, content: text, ts}, {id: crypto.randomUUID(), role: "assistant" as const, content: reply, ts: ts + 1}].slice(-100) }));
+    } finally { nodiaPending.current = false; setNodiaBusy(false); }
+  }, [update]);
+
   // ---------- recebimento ----------
   const processRow = useCallback(
     async (row: RelayRow) => {
@@ -184,7 +215,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!contact) {
           // Sinais efêmeros não criam solicitações de contato inesperadas.
           const kind = (() => { try { return JSON.parse(env.payload)?.t; } catch { return undefined; } })();
-          if (kind === "activity" || kind === "typing") throw new Error("sinal de desconhecido");
+          if (kind === "activity" || kind === "typing" || kind === "reaction") throw new Error("sinal de desconhecido");
           let peer;
           try {
             peer = await fetchIdentity(sess.client, row.sender_id);
@@ -217,7 +248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           t: string; op?: string; id?: string; kind?: string; text?: string; image?: string; audio?: string; dur?: number; wave?: unknown[]; file?: unknown; ttl?: number; ts?: number; ids?: string[];
           n?: string; an?: string; rt?: { id?: string; text?: string }; gid?: string; name?: string; members?: string[]; av?: string; bn?: string;
           description?: string; roles?: GroupRole[]; memberRoles?: Record<string, string>; autoRole?: string;
-          audit?: GroupAuditEntry[]; auditAllowed?: boolean; mentions?: string[];
+          audit?: GroupAuditEntry[]; auditAllowed?: boolean; mentions?: string[]; author?: string; emoji?: string;
         };
 
         if (typeof p.n === "string" && p.n.trim()) {
@@ -247,6 +278,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const thread = g ? `g:${g.id}` : row.sender_id;
             setTyping((state) => ({ ...state, [thread]: { ...state[thread], [row.sender_id]: Math.min(ts, Date.now()) } }));
           }
+        } else if (p.t === "reaction") {
+          const g = p.gid ? localRef.current!.groups.find((x) => x.id === p.gid && !x.requested && x.members.includes(row.sender_id) && x.members.includes(keys.userId)) : undefined;
+          if ((p.gid && !g) || (!p.gid && contact.requested)) throw new Error("conversa inválida");
+          const thread = g ? `g:${g.id}` : row.sender_id;
+          if (typeof p.id !== "string" || !/^[0-9a-f-]{36}$/.test(p.id) || typeof p.author !== "string" || !(g ? g.members.includes(p.author) : [row.sender_id, keys.userId].includes(p.author)) || typeof p.emoji !== "string" || (p.emoji !== "" && !(REACTIONS as readonly string[]).includes(p.emoji))) throw new Error("reação inválida");
+          const event: ReactionEvent = {peer:thread, id:p.id, author:p.author, actor:row.sender_id, emoji:p.emoji, ts:Number(row.sent_at)};
+          if (!Number.isFinite(event.ts)) throw new Error("data inválida");
+          update((s) => {
+            const found = s.messages.some((m) => m.peer === event.peer && m.id === event.id && (m.from ?? m.peer) === event.author);
+            return found ? {...s, messages:s.messages.map((m) => applyReaction(m,event))} : {...s, pendingReactions:[...(s.pendingReactions ?? []), event].slice(-200)};
+          });
         } else if (p.t === "read" && Array.isArray(p.ids)) {
           const readAt = Date.now();
           update((s) => ({
@@ -257,6 +299,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 : m,
             ),
           }));
+        } else if (p.t === "prof-request" && !contact.requested && !contact.blocked) {
+          const pr = localRef.current?.profile;
+          if (pr) void signalRef.current(row.sender_id, JSON.stringify({ t: "prof", n: pr.name, an: pr.appNumber, av: pr.avatar ?? "", bn: pr.banner ?? "" })).catch(() => {});
         } else if (p.t === "prof") {
           if (contact.requested) throw new Error("perfil de desconhecido");
           const patch: Partial<Contact> = {};
@@ -371,6 +416,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               name: (f.name as string).replace(/[\u0000-\u001f\u202e/\\]/g, "_"), mime: (f.mime as string).toLowerCase(), size: f.size,
               thumb: f.thumb as string | undefined, dur: Math.max(0, Math.min(36000, Number(f.dur) || 0)) || undefined,
               w: Number(f.w) || undefined, h: Number(f.h) || undefined, voice: f.voice === true,
+              expiresAt: typeof f.expiresAt === "string" && Number.isFinite(Date.parse(f.expiresAt)) ? f.expiresAt : undefined,
             };
             if (typeof p.text === "string") msg.text = p.text.slice(0, 1000);
           } else {
@@ -387,7 +433,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const members = localRef.current!.groups.find((g) => g.id === p.gid)?.members ?? [];
             msg.mentions = [...new Set(p.mentions.filter((id) => typeof id === "string" && members.includes(id)))].slice(0, 20);
           }
-          update((s) => ({ ...s, messages: [...s.messages, msg] }));
+          update((s) => {
+            const matching = (s.pendingReactions ?? []).filter((e) => e.peer === msg.peer && e.id === msg.id && e.author === row.sender_id);
+            return { ...s, messages: [...s.messages, matching.reduce(applyReaction, msg)], pendingReactions: (s.pendingReactions ?? []).filter((e) => !matching.includes(e)) };
+          });
         }
       } catch {
         /* descarta */
@@ -428,6 +477,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [enqueue]);
 
+  // Sincronização cifrada com controle de versão. Conflitos nunca sobrescrevem silenciosamente.
+  const profileSyncRunning = useRef(false);
+  const syncProfile = useCallback(async (choice?: "local" | "server") => {
+    if (profileSyncRunning.current) return;
+    const sess = sessRef.current, keys = keysRef.current, initial = localRef.current;
+    if (!sess || !keys || !initial) return;
+    profileSyncRunning.current = true;
+    try {
+      const withAuth = async <T,>(fn: (jwt: string) => Promise<T>): Promise<T> => {
+        try { return await fn(sess.getJwt()); }
+        catch (e) { if (!(e instanceof ApiError) || e.status !== 401) throw e; await sess.refresh(); return fn(sess.getJwt()); }
+      };
+      const startingFingerprint = profileFingerprint(initial.profile);
+      const remote = await withAuth(getProfileSnapshot);
+      if (sessRef.current !== sess || keysRef.current !== keys || !localRef.current) return;
+      if (remote && (!Number.isSafeInteger(remote.revision) || remote.revision < 1)) throw new Error("Versão de perfil inválida");
+      const remoteProfile = remote ? await decryptProfile(keys, remote) : null;
+      if (sessRef.current !== sess || keysRef.current !== keys || !localRef.current) return;
+      let current = localRef.current;
+      const meta = current.profileSync ?? { revision: 0, dirty: !!current.profile.name };
+      const remoteRev = remote?.revision ?? 0;
+      const applyRemote = () => {
+        if (!remoteProfile || !remote) throw new Error("Não há perfil remoto para restaurar.");
+        update((state) => ({ ...state, profile: { ...state.profile, name: remoteProfile.name, avatar: remoteProfile.avatar, banner: remoteProfile.banner },
+          profileSync: { revision: remote.revision, dirty: false }, contacts: state.contacts.map((c) => ({ ...c, profSent: false })) }));
+        const pr = localRef.current?.profile;
+        if (pr) for (const c of localRef.current?.contacts ?? []) if (!c.blocked && !c.requested)
+          void signalRef.current(c.id, JSON.stringify({ t: "prof", n: pr.name, an: pr.appNumber, av: pr.avatar ?? "", bn: pr.banner ?? "" })).catch(() => {});
+      };
+      if (choice === "server") {
+        if (profileFingerprint(current.profile) !== startingFingerprint) throw new Error("O perfil mudou durante a escolha. Tente novamente.");
+        applyRemote(); return;
+      }
+      if (!choice && meta.conflict) return;
+      if (meta.dirty || choice === "local") {
+        if (!choice && remoteRev !== meta.revision) {
+          if (remoteProfile && profileFingerprint({ ...current.profile, ...remoteProfile, avatar: remoteProfile.avatar, banner: remoteProfile.banner }) === profileFingerprint(current.profile)) {
+            update((state) => ({ ...state, profileSync: { revision: remoteRev, dirty: false } }));
+          } else update((state) => ({ ...state, profileSync: { ...meta, conflict: true } }));
+          return;
+        }
+        const expected = choice === "local" ? remoteRev : meta.revision;
+        current = localRef.current!;
+        const fingerprint = profileFingerprint(current.profile);
+        const cipher = await encryptProfile(keys, current.profile);
+        if (sessRef.current !== sess || keysRef.current !== keys) return;
+        try {
+          const revision = await withAuth((jwt) => putProfileSnapshot(jwt, expected, cipher.nonce, cipher.ciphertext));
+          if (sessRef.current !== sess || keysRef.current !== keys || !localRef.current) return;
+          if (!Number.isSafeInteger(revision) || revision <= expected) throw new Error("Versão de perfil inválida");
+          update((state) => ({ ...state, profileSync: { revision, dirty: profileFingerprint(state.profile) !== fingerprint } }));
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 409 && sessRef.current === sess) {
+            update((state) => ({ ...state, profileSync: { ...(state.profileSync ?? meta), dirty: true, conflict: true } }));
+            return;
+          }
+          throw e;
+        }
+      } else if (remote && remoteRev !== meta.revision) {
+        // Caso a pessoa tenha começado a editar durante a consulta, não descarte a alteração.
+        if (profileFingerprint(current.profile) !== startingFingerprint) return;
+        applyRemote();
+      } else if (!remote && meta.revision > 0) {
+        update((state) => ({ ...state, profileSync: { ...meta, dirty: true, conflict: true } }));
+      }
+    } catch (e) {
+      if (sessRef.current === sess) setNotice(`Sincronização de perfil pendente: ${errMsg(e)}`);
+    } finally { profileSyncRunning.current = false; }
+  }, [update]);
+
   const stopSession = useCallback(() => {
     window.clearTimeout(pollTimer.current);
     live.current = false;
@@ -443,6 +562,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stopSession();
       const s = await startSession(keys);
       sessRef.current = s;
+      void syncProfile();
       if (s.appNumber && localRef.current?.profile.appNumber !== s.appNumber) {
         update((state) => ({ ...state, profile: { ...state.profile, appNumber: s.appNumber! } }));
       }
@@ -461,8 +581,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       tick();
     },
-    [enqueue, poll, stopSession, update],
+    [enqueue, poll, stopSession, update, syncProfile],
   );
+
+  useEffect(() => {
+    if (phase !== "app") return;
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void syncProfile(); }, 20_000);
+    const wake = () => { if (document.visibilityState === "visible") void syncProfile(); };
+    document.addEventListener("visibilitychange", wake);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", wake); };
+  }, [phase, syncProfile]);
+  useEffect(() => {
+    if (phase !== "app" || !local?.profileSync?.dirty || local.profileSync.conflict) return;
+    const timer = window.setTimeout(() => void syncProfile(), 800);
+    return () => window.clearTimeout(timer);
+  }, [phase, local?.profileSync?.dirty, local?.profileSync?.conflict, local?.profile.name, local?.profile.avatar, local?.profile.banner, syncProfile]);
 
   // ---------- boot / expiração ----------
   useEffect(() => {
@@ -640,7 +773,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const renameContact = useCallback((id: string, alias: string) => update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === id ? { ...c, alias } : c)) })), [update]);
   const setBlocked = useCallback((id: string, blocked: boolean) => update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === id ? { ...c, blocked } : c)) })), [update]);
-  const acceptContact = useCallback((id: string) => update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === id ? { ...c, requested: false } : c)) })), [update]);
+  const acceptContact = useCallback((id: string) => {
+    update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === id ? { ...c, requested: false, profSent: false } : c)) }));
+    void signalRef.current(id, JSON.stringify({ t: "prof-request" })).catch(() => {});
+    const pr = localRef.current?.profile;
+    if (pr) void signalRef.current(id, JSON.stringify({ t: "prof", n: pr.name, an: pr.appNumber, av: pr.avatar ?? "", bn: pr.banner ?? "" })).catch(() => {});
+  }, [update]);
   const removeContact = useCallback((id: string) => update((s) => ({ ...s, contacts: s.contacts.filter((c) => c.id !== id), messages: s.messages.filter((m) => m.peer !== id) })), [update]);
   const setContactTtl = useCallback((id: string, ttl: number) => update((s) => ({ ...s, contacts: s.contacts.map((c) => (c.id === id ? { ...c, ttl } : c)) })), [update]);
   const setAutolock = useCallback((min: number) => update((s) => ({ ...s, settings: { ...s.settings, autolockMin: min } })), [update]);
@@ -668,7 +806,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [update],
   );
 
-  const setProfileName = useCallback((name: string) => update((s) => ({ ...s, profile: { ...s.profile, name: name.trim().slice(0, 40) } })), [update]);
+  const setProfileName = useCallback((name: string) => {
+    const next = name.trim().slice(0, 40);
+    update((s) => s.profile.name === next ? s : ({ ...s, profile: { ...s.profile, name: next }, profileSync: { ...(s.profileSync ?? { revision: 0 }), dirty: true }, contacts: s.contacts.map((c) => ({ ...c, profSent: false })) }));
+    const pr = localRef.current?.profile;
+    if (pr) for (const c of localRef.current?.contacts ?? []) if (!c.blocked && !c.requested)
+      void signalRef.current(c.id, JSON.stringify({ t: "prof", n: pr.name, an: pr.appNumber, av: pr.avatar ?? "", bn: pr.banner ?? "" })).catch(() => {});
+  }, [update]);
+  const resolveProfileConflict = useCallback(async (choice: "local" | "server") => { await syncProfile(choice); }, [syncProfile]);
   const markBackupDone = useCallback(() => update((s) => ({ ...s, settings: { ...s.settings, backupDone: true } })), [update]);
   const setTheme = useCallback((theme: "auto" | "light" | "dark") => update((s) => ({ ...s, settings: { ...s.settings, theme } })), [update]);
   const deleteMessage = useCallback((id: string) => update((s) => ({ ...s, messages: s.messages.filter((m) => m.id !== id) })), [update]);
@@ -730,6 +875,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [transmit]);
 
+  const sendReaction = useCallback(async (peer: string, msg: Msg, selected: string) => {
+    const state = localRef.current, me = keysRef.current?.userId;
+    if (!state || !me || !(REACTIONS as readonly string[]).includes(selected)) throw new Error("Reação inválida");
+    const original = state.messages.find((m) => m.peer === peer && m.id === msg.id && (m.from ?? m.peer) === (msg.from ?? msg.peer));
+    if (!original || original.pending) throw new Error("Mensagem indisponível");
+    const group = peer.startsWith("g:") ? state.groups.find((g) => g.id === peer.slice(2) && !g.requested && g.members.includes(me)) : undefined;
+    const contact = !peer.startsWith("g:") ? state.contacts.find((c) => c.id === peer && !c.blocked && !c.requested) : undefined;
+    if (!group && !contact) throw new Error("Conversa indisponível");
+    if (group && me !== group.owner && !group.roles?.find((r) => r.id === (group.memberRoles?.[me] ?? "everyone"))?.permissions.includes("send_messages")) throw new Error("Seu cargo não permite enviar mensagens");
+    const blocked = new Set(state.contacts.filter((c) => c.blocked).map((c) => c.id));
+    const targets = group ? group.members.filter((id) => id !== me && !blocked.has(id)) : [peer];
+    if (!targets.length) throw new Error("Nenhum destinatário disponível");
+    const emoji = original.reactions?.[me]?.emoji === selected ? "" : selected;
+    const author = original.from ?? original.peer;
+    const payload = JSON.stringify({t:"reaction", gid:group?.id, id:original.id, author, emoji});
+    const sent = await Promise.allSettled(targets.map((id) => transmit(id, payload)));
+    const ok = sent.filter((r): r is PromiseFulfilledResult<{sentAt: number}> => r.status === "fulfilled");
+    if (!ok.length) throw new Error("Não foi possível enviar a reação");
+    const event: ReactionEvent = {peer, id:original.id, author, actor:me, emoji, ts:Math.max(...ok.map((r) => r.value.sentAt || Date.now()))};
+    update((s) => ({...s, messages:s.messages.map((m) => applyReaction(m,event))}));
+    if (ok.length !== sent.length) throw new Error("Alguns participantes podem não ter recebido a reação.");
+  }, [transmit, update]);
+
   const sendProfile = useCallback(
     async (peer: string) => {
       const pr = localRef.current?.profile;
@@ -741,7 +909,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const sendBody = useCallback(
-    async (peer: string, kind: "text" | "image" | "audio" | "file", text: string | undefined, image: string | undefined, reply?: Msg, audio?: string, dur?: number, mentions?: string[], extra?: { file?: FileRef; wave?: number[] }) => {
+    async (peer: string, kind: "text" | "image" | "audio" | "file", text: string | undefined, image: string | undefined, reply?: Msg, audio?: string, dur?: number, mentions?: string[], extra?: { file?: FileRef; wave?: number[]; authorizedRecipients?: string[] }) => {
       const me = keysRef.current!.userId;
       const isGroup = peer.startsWith("g:");
       const contact = isGroup ? undefined : localRef.current?.contacts.find((c) => c.id === peer);
@@ -756,6 +924,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const blocked = new Set((localRef.current?.contacts ?? []).filter((c) => c.blocked).map((c) => c.id));
       const targets = group ? group.members.filter((m) => m !== me && !blocked.has(m)) : [peer];
       if (!targets.length) throw new Error("Não há outros membros no grupo");
+      if (extra?.authorizedRecipients && [...new Set(targets)].sort().join(",") !== [...extra.authorizedRecipients].sort().join(",")) throw new Error("Os destinatários mudaram durante o envio. Envie o anexo novamente.");
       const validMentions = group ? [...new Set((mentions ?? []).filter((id) => group.members.includes(id)))].slice(0, 20) : [];
       const id = crypto.randomUUID();
       const ts = Date.now();
@@ -781,14 +950,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [transmit, update, sendProfile],
   );
 
-  const uploadFile = useCallback(async (data: Uint8Array, onProgress?: (p: number) => void) => {
+  const uploadFile = useCallback(async (peer: string, data: Uint8Array, kind: "video" | "file", onProgress?: (p: number) => void) => {
     const sess = sessRef.current;
     if (!sess) throw new Error("Sem conexão com o servidor");
-    try { return await uploadEncrypted(sess.getJwt(), data, onProgress); }
+    const state = localRef.current, me = keysRef.current?.userId;
+    if (!state || !me) throw new Error("Sessão indisponível");
+    const group = peer.startsWith("g:") ? state.groups.find((g) => g.id === peer.slice(2)) : undefined;
+    const contact = !peer.startsWith("g:") ? state.contacts.find((c) => c.id === peer) : undefined;
+    if (!group && !contact) throw new Error("Conversa não encontrada");
+    if (contact?.blocked) throw new Error("Contato bloqueado");
+    if (group && me !== group.owner && !group.roles?.find((r) => r.id === (group.memberRoles?.[me] ?? "everyone"))?.permissions.includes("send_messages")) throw new Error("Seu cargo não permite enviar mensagens neste grupo");
+    const blocked = new Set(state.contacts.filter((c) => c.blocked).map((c) => c.id));
+    const recipients = group ? [...new Set(group.members.filter((id) => id !== me && !blocked.has(id)))] : [peer];
+    if (!recipients.length || recipients.length > 100) throw new Error("É necessário de 1 a 100 destinatários para enviar anexos.");
+    try { return { ...(await uploadEncrypted(sess.getJwt(), data, kind, recipients, onProgress)), recipients }; }
     catch (e) {
       if (!(e instanceof ApiError) || e.status !== 401) throw e;
       await sess.refresh();
-      return uploadEncrypted(sess.getJwt(), data, onProgress);
+      return { ...(await uploadEncrypted(sess.getJwt(), data, kind, recipients, onProgress)), recipients };
     }
   }, []);
 
@@ -798,9 +977,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await sendBody(peer, "audio", undefined, undefined, undefined, rec.dataUrl, rec.dur, undefined, { wave: rec.wave });
         return;
       }
-      const up = await uploadFile(new Uint8Array(await rec.blob.arrayBuffer()), onProgress);
+      const { recipients, ...up } = await uploadFile(peer, new Uint8Array(await rec.blob.arrayBuffer()), "file", onProgress);
       const file: FileRef = { ...up, name: "mensagem-de-voz.webm", mime: rec.mime, size: rec.blob.size, dur: rec.dur, voice: true };
-      await sendBody(peer, "file", undefined, undefined, undefined, undefined, undefined, undefined, { file, wave: rec.wave });
+      await sendBody(peer, "file", undefined, undefined, undefined, undefined, undefined, undefined, { file, wave: rec.wave, authorizedRecipients: recipients });
     },
     [sendBody, uploadFile],
   );
@@ -818,9 +997,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (await videoFramesBlocked(f)) throw new Error("Este arquivo viola as regras da plataforma e não pode ser enviado.");
         info = await videoInfo(f).catch(() => ({}));
       }
-      const up = await uploadFile(new Uint8Array(await f.arrayBuffer()), onProgress);
+      const { recipients, ...up } = await uploadFile(peer, new Uint8Array(await f.arrayBuffer()), isVideo ? "video" : "file", onProgress);
       const file: FileRef = { ...up, name: f.name.slice(0, 200) || "arquivo", mime, size: f.size, ...info };
-      await sendBody(peer, "file", undefined, undefined, undefined, undefined, undefined, undefined, { file });
+      await sendBody(peer, "file", undefined, undefined, undefined, undefined, undefined, undefined, { file, authorizedRecipients: recipients });
     },
     [sendBody, uploadFile],
   );
@@ -853,7 +1032,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const pr = { ...s.profile };
         if (avatar !== undefined) pr.avatar = avatar ?? undefined;
         if (banner !== undefined) pr.banner = banner ?? undefined;
-        return { ...s, profile: pr };
+        return { ...s, profile: pr, profileSync: { ...(s.profileSync ?? { revision: 0 }), dirty: true }, contacts: s.contacts.map((c) => ({ ...c, profSent: false })) };
       });
       for (const c of localRef.current?.contacts ?? []) if (!c.blocked && !c.requested) void sendProfile(c.id).catch(() => {});
     },
@@ -1101,17 +1280,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(
     () => ({
-      phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic,
+      nodiaBusy, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic,
       clearOnboarding: () => setOnb(null),
       clearNotice: () => setNotice(null),
-      createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+      createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl,
-      sendText, sendImage, markRead, report, setAutolock, deleteAccount,
+      sendReaction, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
-    [phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
-      addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
+    [nodiaBusy, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
+      addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, sendReaction, sendText, sendImage, markRead, report, setAutolock, deleteAccount,
       sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
   );

@@ -1,0 +1,25 @@
+name: Limpar vídeos expirados
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executar limpeza em lotes
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          CLEANUP_SECRET: ${{ secrets.ATTACHMENTS_CLEANUP_SECRET }}
+        run: |
+          set -eu
+          test -n "$SUPABASE_URL" && test -n "$CLEANUP_SECRET"
+          # Limite para evitar execução infinita; próximo agendamento continua o trabalho.
+          for i in $(seq 1 20); do
+            result=$(curl --fail --silent --show-error --max-time 60 -X POST \
+              -H "Authorization: Bearer $CLEANUP_SECRET" \
+              "$SUPABASE_URL/functions/v1/cleanup-attachments")
+            echo "$result" | jq -e '.removed | type == "number"' >/dev/null
+            [ "$(echo "$result" | jq -r .moreMayRemain)" = true ] || break
+          done

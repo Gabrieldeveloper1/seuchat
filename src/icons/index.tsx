@@ -78,22 +78,13 @@ export const IconPlay = make(<path d="m6 4 14 8-14 8z" fill="currentColor" />);
 export const IconCast = make(<><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6" /><path d="M2 20h.01" /></>);
 export const IconFlip = make(<><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></>);
 
-// ---- marca (Black Chique) ----
-let logoSeq = 0;
+// Marca: balão de conversa e cadeado em azul.
 export function Logo({ size = 36, framed = true, ...p }: P & { size?: number; framed?: boolean }) {
-  const id = `lg${++logoSeq}`;
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden focusable={false} {...p}>
-      <defs>
-        <linearGradient id={`${id}g`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f6e7b8" /><stop offset=".5" stopColor="#d4af5f" /><stop offset="1" stopColor="#9a7630" /></linearGradient>
-        <radialGradient id={`${id}b`} cx=".3" cy=".2" r="1"><stop offset="0" stopColor="#26231d" /><stop offset="1" stopColor="#070708" /></radialGradient>
-      </defs>
-      {framed && <><rect width="64" height="64" rx="16" fill={`url(#${id}b)`} /><rect x="1.5" y="1.5" width="61" height="61" rx="14.5" fill="none" stroke={`url(#${id}g)`} strokeOpacity=".55" /></>}
-      <path d="M18 16h28a7 7 0 0 1 7 7v15a7 7 0 0 1-7 7H31l-9 7v-7h-4a7 7 0 0 1-7-7V23a7 7 0 0 1 7-7z" fill="none" stroke={`url(#${id}g)`} strokeWidth="3.6" strokeLinejoin="round" />
-      <circle cx="32" cy="27.5" r="4.4" fill={`url(#${id}g)`} />
-      <path d="M30.2 30h3.6l1.4 7.5h-6.4z" fill={`url(#${id}g)`} />
-    </svg>
-  );
+  return <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden focusable={false} {...p}>
+    {framed && <rect width="64" height="64" rx="16" fill="#2457D6" />}
+    <path d="M15 19a8 8 0 0 1 8-8h18a8 8 0 0 1 8 8v19a8 8 0 0 1-8 8H29l-10 7v-7a8 8 0 0 1-4-8z" fill="none" stroke={framed ? "white" : "#2457D6"} strokeWidth="3.5" strokeLinejoin="round" />
+    <path d="M27 28v-3a5 5 0 0 1 10 0v3m-12 0h14v10H25z" fill="none" stroke={framed ? "white" : "#2457D6"} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+  </svg>;
 }
 export function Wordmark() {
   return <span className="wordmark"><Logo size={34} /><span>SeuChat<b>Seguro</b></span></span>;

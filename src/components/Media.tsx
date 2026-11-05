@@ -92,7 +92,7 @@ export function FileMessage({ f, out }: { f: FileRef; out?: boolean }) {
         {url ? <video src={url} controls autoPlay playsInline /> : (
           <button className="vid-cover" onClick={() => void get()} aria-label="Reproduzir vídeo" style={f.thumb ? { backgroundImage: `url(${f.thumb})` } : undefined}>
             <span className="vid-play">{prog !== null ? <Ring p={prog} /> : <IconPlay />}</span>
-            <span className="vid-info"><IconFilm /> {f.dur ? fmt(f.dur) : "Vídeo"} · {fmtSize(f.size)}</span>
+            <span className="vid-info"><IconFilm /> {f.dur ? fmt(f.dur) : "Vídeo"} · {fmtSize(f.size)}{f.expiresAt ? " · disponível por 10 dias" : ""}</span>
           </button>
         )}
         {err && <div className="att-err"><IconAlert /> {err}</div>}
