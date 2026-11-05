@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
     const mac=b64e(await hmac(proofKey(),enc.encode(`${uid}.${ts}.${nonce}`)));
     return json({challenge:`${ts}.${nonce}.${mac}`});
   }
-  if (!["list", "appeal", "admin-list", "admin-evidence", "admin-decision", "admin-appeal", "messages", "send", "admin-presence"].includes(b.op ?? "") || !b.challenge || !b.signature) return fail(400,"invalid");
+  if (!["list", "appeal", "admin-list", "admin-evidence", "admin-decision", "admin-appeal", "messages", "send", "admin-presence", "admin-typing"].includes(b.op ?? "") || !b.challenge || !b.signature) return fail(400,"invalid");
   if (b.op === "appeal" && (!uuidOk(b.reportId) || !["mistake","context","other"].includes(b.reason ?? "") || typeof b.note !== "string" || b.note.trim().length < 10 || b.note.length > 1500)) return fail(400,"invalid");
   try {
     const [ts,nonce,mac,...rest]=b.challenge.split(".");
@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
   if (quotaErr) return fail(503,"indisponível"); if (!ok) return fail(429,"limite");
   // Atendimento é visível apenas ao denunciante e ao administrador autenticado.
   // Cifra em repouso: o servidor consegue ler; nunca anunciar como E2EE.
-  if (["messages","send","admin-presence"].includes(b.op ?? "")) {
+  if (["messages","send","admin-presence","admin-typing"].includes(b.op ?? "")) {
     if (!uuidOk(b.reportId)) return fail(400,"inválido");
     const {data:r,error}=await db.from("reports").select("id,reporter_id,reported_id").eq("id",b.reportId).maybeSingle();
     if(error) return fail(503,"indisponível"); if(!r) return fail(404,"não encontrado");
@@ -43,6 +43,12 @@ Deno.serve(async (req) => {
     if(b.op==="admin-presence") {
       if(!isAdmin) return fail(403,"não autorizado");
       const {error:e}=await db.from("case_attendance").upsert({report_id:r.id,active_until:new Date(Date.now()+45000).toISOString()});
+      if(e) return fail(503,"indisponível"); return json({ok:true});
+    }
+    if(b.op==="admin-typing") {
+      if(!isAdmin) return fail(403,"não autorizado");
+      if(!["start","stop"].includes(b.reason ?? "")) return fail(400,"inválido");
+      const {error:e}=await db.from("case_typing").upsert({report_id:r.id,typing_until:new Date(Date.now()+(b.reason==="start"?10000:0)).toISOString()});
       if(e) return fail(503,"indisponível"); return json({ok:true});
     }
     try {
@@ -57,11 +63,11 @@ Deno.serve(async (req) => {
         const {error:e}=await db.from("case_messages").insert({report_id:r.id,sender_id:uid,sender_role:isAdmin?"admin":"reporter",body_ciphertext:toPg(cat(nonce,cipher)),proof_id:proof});
         if(e) return fail(409,"mensagem duplicada ou indisponível"); return json({ok:true});
       }
-      const [m,p]=await Promise.all([db.from("case_messages").select("id,sender_id,sender_role,body_ciphertext,created_at").eq("report_id",r.id).order("created_at",{ascending:false}).limit(100),db.from("case_attendance").select("active_until").eq("report_id",r.id).maybeSingle()]);
-      if(m.error || p.error) return fail(503,"indisponível");
+      const [m,p,t]=await Promise.all([db.from("case_messages").select("id,sender_id,sender_role,body_ciphertext,created_at").eq("report_id",r.id).order("created_at",{ascending:false}).limit(100),db.from("case_attendance").select("active_until").eq("report_id",r.id).maybeSingle(),db.from("case_typing").select("typing_until").eq("report_id",r.id).maybeSingle()]);
+      if(m.error || p.error || t.error) return fail(503,"indisponível");
       const out=[];
       for(const row of (m.data ?? []).reverse()) { const raw=fromPg(row.body_ciphertext);const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:raw.slice(0,12),additionalData:enc.encode(r.id+":"+row.sender_id)},key,raw.slice(12));out.push({id:row.id,role:row.sender_role,body:new TextDecoder().decode(plain),createdAt:row.created_at}); }
-      return json({messages:out,adminActive:!!p.data && Date.parse(p.data.active_until)>Date.now()});
+      return json({messages:out,adminActive:!!p.data && Date.parse(p.data.active_until)>Date.now(),adminTyping:!!t.data && Date.parse(t.data.typing_until)>Date.now()});
     } catch {return fail(503,"atendimento indisponível");}
   }
   // O ID é público: só possui acesso quem comprovar posse da chave de identidade acima.

@@ -19,4 +19,5 @@ const obj = JSON.parse(Buffer.from(out).toString("utf8"));
 // o payload pode conter imagem em base64; não imprimimos o conteúdo bruto por padrão
 const p = JSON.parse(obj.plaintext);
 if (p.image) p.image = `[imagem jpeg, ${p.image.length} bytes base64, omitida]`;
-console.log(JSON.stringify({ ...obj, plaintext: p }, null, 2));
+const proofs = Array.isArray(obj.proofs) ? obj.proofs.map(({name,mime,data})=>({name,mime,base64Bytes: typeof data === "string" ? data.length : 0,conteudo:"omitido"})) : [];
+console.log(JSON.stringify({ ...obj, proofs, plaintext: p }, null, 2));

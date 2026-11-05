@@ -1,15 +1,15 @@
 SEUCHATSEGURO — INSTALAÇÃO NO SUPABASE (LEIA ANTES)
 
-Causa verificada em 05/11/2026: o projeto mgwnhxnpcvxqwomssqfb respondeu
-404 NOT_FOUND ao OPTIONS de profile-sync, nodia, attachments e case-desk.
-O navegador mostra um erro de CORS porque essas funções não foram encontradas.
-Não basta alterar o site nem colar SQL: é necessário publicar as Edge Functions.
+Diagnóstico atualizado: o pré-teste OPTIONS de nodia respondeu 200 no projeto
+informado. O erro 503 indica falha posterior, mas não permite identificar a causa
+sem logs do servidor. Esta entrega contém diagnóstico e mudanças locais; não foi
+publicada por esta ferramenta.
 
 1. FAÇA BACKUP. Para uma instalação existente, não execute novamente SQL-1-schema.sql
    nem migrações já aplicadas sem antes conferir o histórico. O esquema base e as
    migrações 002, 004 e 005 precisam existir; vide supabase/migrations/.
 2. No SQL Editor, aplique as migrações ainda não aplicadas em ordem: 006, 007,
-   008, 009, 010 e 011, disponíveis nesta pasta como SQL-006_... até SQL-011_...
+   008, 009, 010, 011 e 012, disponíveis nesta pasta como SQL-006_... até SQL-012_...
    Leia-as e valide em ambiente de teste antes. Não misture uma versão nova do site
    com funções antigas de denúncia: a função antiga pode banir sem avaliar conteúdo.
 3. Em Edge Functions publique cada arquivo .ts desta pasta como função homônima.
@@ -46,3 +46,27 @@ Não basta alterar o site nem colar SQL: é necessário publicar as Edge Functio
 As cópias nesta pasta são geradas com node scripts/generate-dashboard.mjs. Para
 atualizar código no futuro, edite supabase/functions/ e gere novamente; não use
 arquivos antigos de report-verify ou report-decision do ZIP anterior.
+
+DIAGNÓSTICO DO ERRO 503 DA NODIA
+Publique esta versão da função nodia. No painel Supabase > Edge Functions > nodia >
+Logs, reproduza o erro e procure exclusivamente os códigos iniciados por [NODIA].
+Não compartilhe o texto das mensagens, chaves, tokens nem logs completos.
+- key_missing_or_no_free_models: confira o segredo OPENROUTER_API_KEY e a lista
+  OPENROUTER_MODELS no servidor. Revogue a chave que foi exposta e crie outra.
+- quota_rpc_failed: verifique se a migração 009 foi aplicada ao projeto correto.
+- identity_lookup_failed: confira a tabela identities, acesso e configurações.
+- upstream_http_401: confira se a chave está válida e corretamente configurada.
+- upstream_http_402: confira créditos e limites da conta do provedor.
+- upstream_http_429: limite ou disponibilidade; tente novamente mais tarde.
+- upstream_timeout_or_network / all_models_unavailable: confira disponibilidade,
+  limites e nomes dos modelos configurados; o erro isolado não prova a causa.
+A função tenta os modelos gratuitos em sequência até um responder ou o prazo total
+se esgotar. Não há garantia de disponibilidade. Não exponha a chave no navegador.
+
+COFRE DE MODERAÇÃO
+Na primeira abertura de uma prova neste navegador, informe a chave privada
+MODERATION_PRIVATE_KEY que corresponde à chave pública já configurada e informe
+a senha atual da conta. Nas próximas aberturas, use apenas a senha. A chave fica cifrada localmente, não no servidor.
+Guarde um backup da chave em local seguro: limpar o navegador ou perder a senha
+exige configurar o cofre novamente. Cada aparelho precisa de configuração própria.
+Não substitua MODERATION_PUBKEY sem um plano para as provas já armazenadas.

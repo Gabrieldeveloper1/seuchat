@@ -6,9 +6,10 @@ import { ID_RE, dec, enc, fromB64, hexToBytes, toB64 } from "./util";
 import { isValidMnemonic, keysFromMnemonic, newMnemonic, normalizeMnemonic, type Keys } from "./crypto";
 import { normalizeAppNumber } from "./phone";
 import { createVault, openVault, saveVault, vaultExists, wipeVault, type VaultHandle } from "./vault";
+import {rewrapModerationVault,restoreModerationVault} from "./moderationVault";
 import { startSession, fetchIdentity, type RelayRow, type Session } from "./session";
 import { ApiError, getNews, type NewsItem, deleteAccount as apiDeleteAccount, lookupAppNumber, sendMessage, submitReport, getTurnIceServers, getProfileSnapshot, putProfileSnapshot, askNodia, caseRequest, type ModerationCase } from "./api";
-import { buildReport, frankMessage, verifyIncoming, type ReportPayload } from "./franking";
+import { buildReport, frankMessage, verifyIncoming, type ReportPayload, type ReportProof } from "./franking";
 import { dataUrlIsBlocked, imageSendingAllowed, loadBlocklist, prepareImage } from "./imageFilter";
 import { decryptProfile, encryptProfile, profileFingerprint } from "./profileSync";
 import { applyReaction, REACTIONS, type ReactionEvent } from "./reactions";
@@ -64,9 +65,9 @@ interface Ctx {
   sendText(peer: string, text: string, reply?: Msg, mentions?: string[]): Promise<void>;
   sendImage(peer: string, file: File): Promise<void>;
   markRead(peer: string): void;
-  report(msg: Msg, category: ReportPayload["category"]): Promise<string>;
+  report(msg: Msg, category: ReportPayload["category"], note?: string, proofs?: ReportProof[]): Promise<string>;
   listCases(): Promise<ModerationCase[]>;
-  adminCase<T>(op: "admin-list" | "admin-evidence" | "admin-decision" | "admin-appeal" | "messages" | "send" | "admin-presence", id?: string, action?: string, note?: string): Promise<T>;
+  adminCase<T>(op: "admin-list" | "admin-evidence" | "admin-decision" | "admin-appeal" | "messages" | "send" | "admin-presence" | "admin-typing", id?: string, action?: string, note?: string): Promise<T>;
   appealCase(id: string, reason: "mistake" | "context" | "other", note: string): Promise<void>;
   setAutolock(min: number): void;
   deleteAccount(): Promise<void>;
@@ -841,7 +842,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const ok = await openVault(oldPass);
       if (!ok) throw new Error("Senha atual incorreta");
       await flush();
-      vaultRef.current = await createVault(newPass, localRef.current!);
+      // Primeiro reprotege o cofre de moderação; restaura-o se salvar a conta falhar.
+      const previousModerationVault = keysRef.current?.userId === "mjii6xurvff2p33tl6vftzf2vu" ? await rewrapModerationVault(oldPass, newPass) : null;
+      try { vaultRef.current = await createVault(newPass, localRef.current!); }
+      catch (e) { restoreModerationVault(previousModerationVault); throw e; }
     },
     [flush],
   );
@@ -1267,11 +1271,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ---------- denúncia / exclusão ----------
   const report = useCallback(
-    async (msg: Msg, category: ReportPayload["category"]) => {
+    async (msg: Msg, category: ReportPayload["category"], note = "", proofs: ReportProof[] = []) => {
       const sess = sessRef.current;
       if (!sess || !msg.frank || msg.dir !== "in") throw new Error("Esta mensagem não pode ser denunciada");
       const who = msg.from ?? msg.peer;
-      const receipt = await submitReport(sess.getJwt(), buildReport(who, category, msg.frank));
+      const receipt = await submitReport(sess.getJwt(), {...buildReport(who, category, msg.frank), note, proofs});
       update((s) => ({
         ...s,
         messages: s.messages.map((m) => (m.id === msg.id ? { ...m, reported: true } : m)),
@@ -1290,7 +1294,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await caseRequest(keys, "appeal", id, reason, note);
   }, []);
 
-  const adminCase = useCallback(async <T,>(op: "admin-list" | "admin-evidence" | "admin-decision" | "admin-appeal" | "messages" | "send" | "admin-presence", id?: string, action?: string, note?: string): Promise<T> => {
+  const adminCase = useCallback(async <T,>(op: "admin-list" | "admin-evidence" | "admin-decision" | "admin-appeal" | "messages" | "send" | "admin-presence" | "admin-typing", id?: string, action?: string, note?: string): Promise<T> => {
     const keys = keysRef.current; if (!keys) throw new Error("Desbloqueie sua conta.");
     return caseRequest<T>(keys, op, id ?? null, action ?? null, note ?? null);
   }, []);

@@ -56,10 +56,13 @@ export async function verifyIncoming(
   return sodium.crypto_sign_verify_detached(senderSig, sigPayload(tag, myId), senderIdKey);
 }
 
+export type ReportProof = {name:string; mime:string; data:string};
 export interface ReportPayload {
   reportedId: string;
   category: "csam" | "harassment" | "spam" | "other";
   plaintext: string;
+  note?: string;
+  proofs?: ReportProof[];
   frank: { key: string; tag: string; senderSig: string; serverMac: string; sentAt: number };
 }
 

@@ -17,11 +17,15 @@ import { formatAppNumber } from "../lib/phone";
 import { imageSendingAllowed } from "../lib/imageFilter";
 import { shortId } from "../lib/util";
 import type { Msg } from "../types";
+import type { ReportProof } from "../lib/franking";
 
 type ReportCat = "csam" | "harassment" | "spam" | "other";
 
 const CATS: { v: ReportCat; t: string; d: string }[] = [
-  { v: "csam", t: "Abuso ou exploração sexual de crianças e adolescentes", d: "Uma equipe avalia a evidência antes de qualquer decisão. Imagens e conversas comuns envolvendo crianças não são proibidas por esse motivo." },
+  { v: "csam", t: "Suspeita de abuso ou exploração sexual infantil", d: "Conteúdo comum envolvendo crianças não é proibido por esse motivo." },
+  { v: "harassment", t: "Assédio ou ameaça", d: "Será analisado pela equipe." },
+  { v: "spam", t: "Spam ou golpe", d: "Será analisado pela equipe." },
+  { v: "other", t: "Outro motivo", d: "Explique o que aconteceu." },
 ];
 
 function AddContact({ onClose }: { onClose: () => void }) {
@@ -72,11 +76,13 @@ function ReportDialog({ msg, onClose, onSubmitted }: { msg: Msg; onClose: () => 
   const [cat, setCat] = useState<ReportCat>("csam");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [proofFiles, setProofFiles] = useState<File[]>([]);
   const alias = local?.contacts.find((c) => c.id === (msg.from ?? msg.peer))?.alias ?? "contato";
   return (
     <Dialog title="Denunciar mensagem" onClose={onClose}>
       <p className="muted small" style={{ margin: 0 }}>
-        Será enviada à moderação somente esta mensagem de {alias}, com as provas criptográficas de autoria. O resto da conversa continua privado.
+        A mensagem de {alias}, sua explicação e os arquivos que você escolher serão enviados à moderação. O restante da conversa não será enviado automaticamente.
         O contato será bloqueado apenas para você. Autoria verificada não significa infração comprovada; uma pessoa avaliará a evidência.
       </p>
       {CATS.map((c) => (
@@ -85,11 +91,18 @@ function ReportDialog({ msg, onClose, onSubmitted }: { msg: Msg; onClose: () => 
           <span>{c.t}{c.d && <span className="muted small" style={{ display: "block" }}>{c.d}</span>}</span>
         </label>
       ))}
+      <label className="field">Explique o que aconteceu (opcional)
+        <textarea className="input" rows={3} maxLength={1000} value={note} onChange={e=>setNote(e.target.value)} placeholder="Dê contexto para a análise." />
+      </label>
+      <label className="field">Anexar provas (opcional)
+        <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple onChange={e=>{const files=Array.from(e.target.files??[]);if(files.length>2 || files.some(f=>f.size>512*1024 || f.size===0 || !["image/jpeg","image/png","image/webp","application/pdf"].includes(f.type))){setErr("Escolha até 2 imagens ou PDFs de até 512 KB cada.");setProofFiles([]);e.target.value="";}else{setErr(null);setProofFiles(files)}}}/>
+        <span className="muted small">Até 2 imagens ou PDFs, 512 KB cada. Não anexe conteúdo sexual explícito envolvendo crianças ou adolescentes. Arquivos adicionais não têm autoria verificada.</span>
+      </label>
       {err && <div className="error" role="alert">{err}</div>}
       <button className="btn primary" disabled={busy} onClick={async () => {
         setBusy(true);
         setErr(null);
-        try { const id = await report(msg, cat); onSubmitted(id); }
+        try { const proofs:ReportProof[]=await Promise.all(proofFiles.map(async f=>({name:f.name.slice(0,120),mime:f.type,data:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onerror=()=>reject(new Error("Falha ao ler arquivo"));r.onload=()=>resolve(String(r.result).split(",")[1]??"");r.readAsDataURL(f)})})));const id = await report(msg, cat, note.trim(), proofs); onSubmitted(id); }
         catch (x) { setErr(x instanceof Error ? x.message : "Falha ao denunciar"); }
         finally { setBusy(false); }
       }}>{busy ? <><IconLoader className="spin" /> Enviando…</> : "Enviar denúncia"}</button>
