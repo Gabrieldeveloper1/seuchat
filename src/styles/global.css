@@ -813,7 +813,7 @@ h1, h2, h3 { letter-spacing: -.03em; }
 .nodia-label { color:var(--accent); display:flex; justify-content:center; align-items:center; gap:6px; font-size:10px; font-weight:800; letter-spacing:.14em; }.nodia-label svg { width:14px; height:14px; }.nodia-hero h1 { margin:9px 0 8px; font-size:clamp(26px,3vw,37px); letter-spacing:-.045em; }.nodia-hero p { margin:0; line-height:1.5; color:var(--muted); }
 .nodia-privacy { display:flex; gap:12px; padding:17px; border-radius:18px; border:1px solid color-mix(in srgb,var(--accent) 24%,var(--border)); background:color-mix(in srgb,var(--accent) 5%,var(--surface)); font-size:13px; line-height:1.5; }.nodia-privacy>svg { flex:none; color:var(--accent); width:20px; }.nodia-privacy strong { font-size:14px; }.nodia-privacy p { color:var(--muted); margin:7px 0; }.nodia-privacy button { margin-top:7px; }
 .nodia-starters { margin-top:26px; }.nodia-section-title { font-size:10px; font-weight:800; letter-spacing:.12em; color:var(--muted); margin-bottom:10px; }.nodia-starters>div:last-child { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; }.nodia-starters button { text-align:left; display:flex; justify-content:space-between; gap:8px; min-height:65px; padding:13px; border:1px solid var(--border); color:var(--text); background:var(--surface); border-radius:14px; font:inherit; font-size:13px; cursor:pointer; transition:transform .18s, border-color .18s; }.nodia-starters button:hover { transform:translateY(-2px); border-color:var(--accent); }.nodia-starters button span { color:var(--accent); }
-.nodia-messages { display:grid; gap:14px; margin-top:24px; }.nodia-line { display:flex; align-items:flex-end; gap:9px; }.nodia-line.mine { justify-content:flex-end; }.nodia-line img { width:32px; height:32px; border-radius:11px; }.nodia-bubble { max-width:min(85%,600px); white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.55; padding:13px 16px; border-radius:18px 18px 18px 4px; background:var(--surface); border:1px solid var(--border); font-size:14px; }.mine .nodia-bubble { background:var(--accent); color:white; border-color:transparent; border-radius:18px 18px 4px 18px; }.nodia-thinking span:not(.sr-only) { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); animation:nodia-pulse 1s infinite alternate; }.nodia-thinking span:nth-child(2) { animation-delay:.2s; }.nodia-thinking span:nth-child(3) { animation-delay:.4s; }
+.nodia-messages { display:grid; gap:14px; margin-top:24px; }.nodia-line { display:flex; align-items:flex-end; gap:9px; }.nodia-line.mine { justify-content:flex-end; }.nodia-line img { width:32px; height:32px; border-radius:11px; }.nodia-bubble { max-width:min(85%,600px); white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.55; padding:13px 16px; border-radius:18px 18px 18px 4px; background:var(--surface); border:1px solid var(--border); font-size:14px; }.mine .nodia-bubble { background:var(--accent); color:white; border-color:transparent; border-radius:18px 18px 4px 18px; }.nodia-thinking > span:not(.sr-only) { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); animation:nodia-pulse 1s infinite alternate; }.nodia-thinking > span:nth-child(2) { animation-delay:.2s; }.nodia-thinking > span:nth-child(3) { animation-delay:.4s; }
 .nodia-compose { background:var(--surface); border-top:1px solid var(--border); padding:13px 20px calc(13px + var(--safe-b)); }.nodia-compose-inner { max-width:760px; margin:auto; }.nodia-input-wrap { display:flex; align-items:flex-end; gap:8px; padding:7px; border:1px solid var(--border); border-radius:19px; background:var(--bg); }.nodia-input-wrap:focus-within { border-color:var(--accent); }.nodia-input-wrap textarea { flex:1; min-width:0; max-height:110px; resize:vertical; border:0; outline:0; background:transparent; color:var(--text); padding:11px; font:inherit; }.nodia-send { width:42px; height:42px; border:0; border-radius:14px; background:var(--accent); color:white; cursor:pointer; display:grid; place-items:center; }.nodia-send:disabled { opacity:.45; cursor:not-allowed; }.nodia-send svg { width:20px; }.nodia-compose small { display:block; text-align:center; margin-top:8px; }.nodia-error { color:var(--text); margin:0 0 8px; font-size:13px; }
 @keyframes nodia-float { 50% { transform:translateY(-4px); } } @keyframes nodia-pulse { to { opacity:.3; transform:translateY(-3px); } }
 @media(max-width:760px) { .tabbar { grid-template-columns:repeat(4,1fr); }.tab-ink { width:calc((100% - 12px) / 4); }.nodia-back { display:inline-flex; }.nodia-head { padding:calc(10px + var(--safe-t)) 12px 10px; }.nodia-inner { padding:27px 16px; }.nodia-starters>div:last-child { grid-template-columns:1fr; }.nodia-starters button { min-height:46px; }.nodia-compose { padding:10px 12px calc(10px + var(--safe-b)); } }
@@ -875,3 +875,87 @@ h1, h2, h3 { letter-spacing: -.03em; }
 .toast>span:nth-child(2) { flex:1; }
 .toast button { display:grid; place-items:center; min-width:40px; min-height:40px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:22px; cursor:pointer; }
 .toast button:hover,.toast button:focus-visible { background:var(--surface-2); color:var(--text); outline:1px solid var(--accent); }
+/* Comunicados globais: aparecem apenas na sessão desbloqueada, abaixo de chamadas e cortina. */
+.global-notifications { position:fixed; z-index:45; top:calc(16px + var(--safe-t)); right:16px; width:min(390px,calc(100vw - 32px)); display:grid; gap:8px; pointer-events:none; }
+.global-alert { display:grid; grid-template-columns:36px minmax(0,1fr) 40px; gap:10px; align-items:start; padding:14px 10px 14px 14px; color:var(--text); background:var(--surface); border:1px solid var(--border-2); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.17); pointer-events:auto; animation:global-arrive .28s ease-out; }
+.global-alert-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:9px; color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--surface)); }
+.global-alert-icon svg { width:19px; height:19px; }
+.global-alert-kicker { display:block; font-size:10px; font-weight:800; letter-spacing:.09em; color:var(--accent); margin-bottom:3px; }
+.global-alert strong { display:block; font-size:14px; overflow-wrap:anywhere; }.global-alert p { margin:5px 0 0; font-size:14px; color:var(--muted); line-height:1.45; overflow-wrap:anywhere; white-space:pre-wrap; }
+.global-alert>button { border:0; background:transparent; color:var(--muted); min-height:40px; width:40px; border-radius:8px; font-size:22px; cursor:pointer; }.global-alert>button:hover,.global-alert>button:focus-visible { background:var(--surface-2); outline:1px solid var(--accent); color:var(--text); }
+@keyframes global-arrive { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
+.announce-admin { border:1px solid var(--border); background:var(--surface); border-radius:14px; margin:0 0 22px; overflow:hidden; }
+.announce-toggle { display:flex; align-items:center; gap:12px; width:100%; padding:14px 16px; border:0; background:transparent; color:var(--text); text-align:left; font:inherit; cursor:pointer; }
+.announce-toggle>span:nth-child(2) { flex:1; display:grid; gap:3px; }.announce-toggle small,.announce-active small { display:block; color:var(--muted); font-size:12px; }.announce-toggle>span:last-child { font-size:24px; color:var(--muted); }
+.announce-admin-body { border-top:1px solid var(--border); padding:16px; }.announce-admin-body p { color:var(--muted); font-size:13px; line-height:1.5; }.announce-admin-body form { display:grid; gap:12px; }.announce-admin-body label { display:grid; gap:6px; font-size:13px; font-weight:650; }.announce-admin-body textarea { resize:vertical; }.announce-admin-body h3 { font-size:15px; margin:20px 0 8px; }.announce-active { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--border); }.announce-active b { overflow-wrap:anywhere; }.announce-publish { justify-content:space-between; }.announce-publish span { display:inline-grid; place-items:center; border:1px solid currentColor; border-radius:50%; width:24px; height:24px; transition:transform .2s; }.announce-publish:hover span { transform:translateX(3px); }
+@media(max-width:760px) { .global-notifications { right:12px; width:calc(100vw - 24px); top:calc(12px + var(--safe-t)); } }
+@media(prefers-reduced-motion:reduce) { .global-alert { animation:none; }.announce-publish span { transition:none; } }
+/* Componentes visuais inspirados nas referências de chat, cards, botões e tela móvel. */
+.nodia-compose { padding-top:14px; }.nodia-input-wrap { border:1px solid color-mix(in srgb,var(--accent) 25%,var(--border-2)); background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 5%,var(--surface)),var(--bg) 45%); box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+.nodia-loader-choice { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px; }.nodia-loader-choice select { max-width:105px; padding:6px 5px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:8px; font:inherit; min-height:36px; }
+.nodia-thinking { display:flex; align-items:center; gap:10px; min-height:70px; }.nodia-thinking b { font-size:13px; }.nodia-loader { display:grid; place-items:center; flex:none; min-width:68px; height:68px; overflow:hidden; }
+.nodia-thinking .uv-orb-loader-wrapper { color:var(--text); }.nodia-thinking .uv-orb-loader { box-shadow:0 0 18px color-mix(in srgb,var(--accent) 30%,transparent) inset; }
+.nodia-error { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }.nodia-signal { display:grid; place-items:center; width:26px; height:21px; border:2px solid currentColor; border-radius:5px; flex:none; opacity:.75; }.nodia-signal span { font-weight:800; font-size:12px; }
+.nodia-starters button,.case-card,.announce-admin { transition:border-color .2s,transform .2s,box-shadow .2s; }.nodia-starters button:hover,.case-card:hover,.announce-admin:focus-within { border-color:var(--accent); box-shadow:0 4px 16px color-mix(in srgb,var(--accent) 10%,transparent); }.nodia-starters button:hover span { transform:translateX(3px); }.nodia-starters button span { transition:transform .2s; }
+.lock-badge-phone { border-radius:18px; border:1px solid var(--border-2); box-shadow:0 4px 16px color-mix(in srgb,var(--accent) 12%,transparent); }
+@media(max-width:420px) { .nodia-loader-choice span { display:none; }.nodia-loader-choice select { max-width:75px; }.nodia-head { gap:7px; }.nodia-head-text small { font-size:11px; } }
+@media(prefers-reduced-motion:reduce) { .nodia-starters button,.case-card,.announce-admin,.nodia-starters button span { transition:none; } }
+
+.global-notifications { max-height:min(65dvh,560px); overflow-y:auto; }
+@media(max-width:420px) { .nodia-loader-choice select { width:90px; max-width:90px; font-size:11px; } }
+
+/* Visual inspirado na referência com a identidade azul do SeuChatSeguro. */
+:root, :root:not([data-theme="light"]) {
+  --font:"Inter",Arial,sans-serif; --verified-mark:#fff;
+  --bg:#101010; --surface:#141414; --surface-2:#202020; --surface-3:#303030;
+  --text:#f7f7f7; --muted:#b6b6b6; --border:#343434; --border-2:#464646;
+  --accent:#8eafff; --accent-2:#8eafff; --accent-text:#fff;
+  --gold:linear-gradient(135deg,#356be5,#2457d6); --grad:var(--gold);
+  --bubble-in:#232323; --bubble-in-text:#f7f7f7; --bubble-out-text:#fff;
+  --warn-bg:#252b36; --glass:rgba(20,20,20,.97); --glow:0 4px 18px rgba(0,0,0,.18);
+  --shadow:0 28px 70px -30px rgba(0,0,0,.85); --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+}
+:root[data-theme="light"] {
+  --verified-mark:#fff;
+  --bg:#f5f5f5; --surface:#fff; --surface-2:#ededed; --surface-3:#dedede;
+  --text:#191919; --muted:#606060; --border:#d9d9d9; --border-2:#c5c5c5;
+  --accent:#2457d6; --accent-2:#2457d6; --accent-text:#fff;
+  --gold:linear-gradient(135deg,#356be5,#2457d6); --grad:var(--gold);
+  --bubble-in:#fff; --bubble-in-text:#191919; --bubble-out-text:#fff;
+  --warn-bg:#edf2fc; --glass:rgba(255,255,255,.97); --glow:0 4px 18px rgba(0,0,0,.08);
+  --shadow:0 25px 60px -30px rgba(0,0,0,.25); --shadow-sm:0 1px 2px rgba(0,0,0,.08);
+}
+body,button,input,textarea,select { font-family:var(--font); }
+.hero,.set-hero { background:#102752 url('/brand-banner.svg?v=blue27') center/cover; color:#fff; }
+.banner-img,.group-cover { background:#102752 url('/brand-banner.svg?v=blue27') center/cover; }
+.hero-kicker,.hero h1 em,.hero .wordmark b { color:#bcd0ff; -webkit-text-fill-color:#bcd0ff; }
+.hero li span { background:rgba(255,255,255,.1); color:#fff; border-color:rgba(255,255,255,.25); }
+.set-hero > svg { color:#bcd0ff; }.set-hero span { color:#dce6ff; }
+.main { background-image:none; }
+.side,.rail,.chat-head,.nodia-head,.terms-header { box-shadow:none; }
+.rail-btn.on { background:var(--surface-3); color:var(--text); }
+.rail-btn.on::before,.row.on::before { background:#356be5; }
+.row { border-radius:9px; }.row.on { background:var(--surface-3); box-shadow:none; }
+.chip { border-radius:9px; }
+.btn { border-radius:999px; }.input,.search .input { border-radius:10px; }
+.set-nav button { border-radius:8px; }.set-nav button.on { color:var(--text); background:var(--surface-3); }
+.set-group,.profile-card,.case-card,.case-appeal,.nodia-privacy,.dialog { border-radius:10px; }
+.mine .nodia-bubble,.case-user>div { background:var(--gold); color:#fff; }
+.dot,.call-mini { color:#fff; }
+.nodia-verified { color:#356be5; }
+.theme-prev i:nth-child(3) { background:#2457d6; }
+.splash { background:#101010; }.splash-bar { background:rgba(36,87,214,.18); }.splash-bar i { background:linear-gradient(90deg,transparent,#8eafff,transparent); }
+:root[data-theme="light"] .splash { background:#f5f5f5; }
+.splash-glow { background:radial-gradient(circle,rgba(36,87,214,.14),transparent 65%); }
+.splash-mark svg { filter:drop-shadow(0 18px 40px rgba(36,87,214,.18)); }
+.splash-ring { border-color:rgba(36,87,214,.45); }
+.empty .ico,.welcome-pane>svg { filter:none; }.bubble.out { box-shadow:none; }
+.wordmark b,.welcome-pane b em,.splash-name b { background:none; color:var(--accent); -webkit-text-fill-color:var(--accent); }
+.hero .wordmark b { color:#bcd0ff; -webkit-text-fill-color:#bcd0ff; }
+/* Ações brancas e texto escuro; borda mantém contraste no tema claro. */
+.btn.primary,.nodia-send,.fab { background:#f7f7f7; color:#161616; border:1px solid #f7f7f7; }
+.btn.primary:hover,.nodia-send:not(:disabled):hover,.fab:hover { background:#e6e6e6; color:#161616; border-color:#e6e6e6; filter:none; }
+.tabs button.on,.seg button.on,.chip.on { background:#f7f7f7; color:#161616; border-color:#f7f7f7; box-shadow:none; }
+:root[data-theme="light"] .btn.primary,:root[data-theme="light"] .nodia-send,:root[data-theme="light"] .fab,
+:root[data-theme="light"] .tabs button.on,:root[data-theme="light"] .seg button.on,:root[data-theme="light"] .chip.on { border:1px solid #aaa; }
+:root[data-theme="light"] .btn.primary:hover,:root[data-theme="light"] .nodia-send:not(:disabled):hover,:root[data-theme="light"] .fab:hover { background:#e5e5e5; border-color:#888; }

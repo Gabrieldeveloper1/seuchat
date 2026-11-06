@@ -1,8 +1,20 @@
 import nacl from "npm:tweetnacl@1";
-import { admin, b64d, b64e, cat, cors, discordAppeal, enc, eq, fail, fromPg, hmac, json, toPg } from "../_shared/util.ts";
+import { admin, b64d, b64e, cat, cors, discordAppeal, enc, eq, fail, fromPg, hmac, json, toPg, userIdFromIdKey } from "../_shared/util.ts";
 // A prova usa apenas a chave de identidade do aparelho, nunca libera JWT de conversa.
 const proofKey = () => enc.encode("scs-case-challenge:" + Deno.env.get("JWT_SECRET"));
-const ADMIN_ID = "mjii6xurvff2p33tl6vftzf2vu"; // Identidade pública; autenticação exige assinatura da chave privada.
+
+// Criptografa para a prekey assinada da conta administrativa, não para uma chave separada.
+const ADMIN_ID = "mjii6xurvff2p33tl6vftzf2vu";
+async function adminEncryptionKey(db: ReturnType<typeof admin>): Promise<Uint8Array | null> {
+  const {data, error} = await db.from("identities").select("identity_key,signed_prekey,signed_prekey_sig,banned_at").eq("user_id", ADMIN_ID).maybeSingle();
+  if (error || !data || data.banned_at) return null;
+  try {
+    const identity=fromPg(data.identity_key), prekey=fromPg(data.signed_prekey), signature=fromPg(data.signed_prekey_sig);
+    if (identity.length!==32 || prekey.length!==32 || signature.length!==64 || await userIdFromIdKey(identity)!==ADMIN_ID || !nacl.sign.detached.verify(prekey,signature,identity)) return null;
+    return prekey;
+  } catch { return null; }
+}
+
 const uidOk = (s: unknown) => typeof s === "string" && /^[a-z2-7]{26}$/.test(s);
 const uuidOk = (s: unknown) => typeof s === "string" && /^[0-9a-f-]{36}$/.test(s);
 Deno.serve(async (req) => {
@@ -128,10 +140,10 @@ Deno.serve(async (req) => {
   const role=report.reporter_id===uid && report.status === "dismissed" ? "reporter" : report.reported_id===uid && report.status === "actioned" ? "reported" : null;
   if (!role) return fail(403,"indisponível");
   if (role === "reported") { const {data:ban,error:banError}=await db.from("bans").select("id").eq("report_id",report.id).eq("user_id",uid).limit(1); if (banError) return fail(503,"indisponível"); if (!ban?.length) return fail(403,"indisponível"); }
-  const modPub=Deno.env.get("MODERATION_PUBKEY");
-  if (!modPub) return fail(503,"Moderação não configurada");
+  const modPub=await adminEncryptionKey(db);
+  if (!modPub) return fail(503,"Administrador indisponível");
   let noteCiphertext: string;
-  try { const pub=b64d(modPub); if (pub.length !== 32) return fail(503,"Moderação não configurada"); const eph=nacl.box.keyPair(), nonce=crypto.getRandomValues(new Uint8Array(24)); noteCiphertext=toPg(cat(eph.publicKey,nonce,nacl.box(enc.encode(b.note!.trim()),nonce,pub,eph.secretKey))); } catch { return fail(503,"Falha ao proteger apelação"); }
+  try { const pub=modPub; const eph=nacl.box.keyPair(), nonce=crypto.getRandomValues(new Uint8Array(24)); noteCiphertext=toPg(cat(eph.publicKey,nonce,nacl.box(enc.encode(b.note!.trim()),nonce,pub,eph.secretKey))); } catch { return fail(503,"Falha ao proteger apelação"); }
   const {data:appeal,error:appealError}=await db.from("report_appeals").insert({report_id:report.id,appellant_id:uid,appellant_role:role,reason:b.reason,note_ciphertext:noteCiphertext}).select("id,status,created_at").single();
   if (appealError || !appeal) return fail(409,"Apelação já registrada ou indisponível");
   try { await discordAppeal(appeal.id,report.id,role); } catch { /* a apelação continua na fila do banco */ }

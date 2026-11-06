@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
-import { IconLock, Wordmark, IconLoader } from "../icons";
+import { IconLock, IconFingerprint, Wordmark, IconLoader } from "../icons";
 import PasswordInput from "../components/PasswordInput";
 
 export default function Unlock() {
@@ -15,7 +15,7 @@ export default function Unlock() {
       </section>
       <section className="panel">
         <form className="card" onSubmit={(e) => { e.preventDefault(); void unlock(pass); }}>
-          <span className="lock-badge"><IconLock style={{ width: 30, height: 30 }} /></span>
+          <span className="lock-badge lock-badge-phone"><IconFingerprint style={{ width: 30, height: 30 }} aria-hidden="true" /></span>
           <div className="center-text">
             <h2>Digite sua senha</h2>
             <p className="muted small" style={{ margin: "4px 0 0" }}>Suas conversas ficam trancadas neste aparelho.</p>

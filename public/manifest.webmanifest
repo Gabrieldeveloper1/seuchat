@@ -10,9 +10,28 @@
   "background_color": "#111317",
   "theme_color": "#111317",
   "icons": [
-    { "src": "/icon-2026-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-2026-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-2026-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/brand-mark-2026.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "/icon-blue-27-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-blue-27-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-blue-27-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/brand-mark-blue-27.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
   ]
 }

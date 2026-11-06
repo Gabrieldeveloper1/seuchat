@@ -166,6 +166,18 @@ export async function discordAppeal(id: string, reportId: string, role: string):
 
 import nacl from "npm:tweetnacl@1";
 
+// Criptografa para a prekey assinada da conta administrativa, não para uma chave separada.
+const ADMIN_ID = "mjii6xurvff2p33tl6vftzf2vu";
+async function adminEncryptionKey(db: ReturnType<typeof admin>): Promise<Uint8Array | null> {
+  const {data, error} = await db.from("identities").select("identity_key,signed_prekey,signed_prekey_sig,banned_at").eq("user_id", ADMIN_ID).maybeSingle();
+  if (error || !data || data.banned_at) return null;
+  try {
+    const identity=fromPg(data.identity_key), prekey=fromPg(data.signed_prekey), signature=fromPg(data.signed_prekey_sig);
+    if (identity.length!==32 || prekey.length!==32 || signature.length!==64 || await userIdFromIdKey(identity)!==ADMIN_ID || !nacl.sign.detached.verify(prekey,signature,identity)) return null;
+    return prekey;
+  } catch { return null; }
+}
+
 // Denúncia verificável (message franking). O denunciante é o DESTINATÁRIO da mensagem.
 const SERVER_KEY = () => b64d(Deno.env.get("FRANKING_SERVER_KEY")!);
 
@@ -182,8 +194,6 @@ Deno.serve(async (req) => {
   const reporterId = await authUser(req);
   if (!reporterId) return fail(401, "unauthorized");
 
-  const modPub = Deno.env.get("MODERATION_PUBKEY");
-  if (!modPub) return fail(500, "chave de moderação não configurada");
 
   let b: { reportedId: string; category: string; plaintext: string; note?: string; proofs?: {name:string;mime:string;data:string}[]; frank: { key: string; tag: string; senderSig: string; serverMac: string; sentAt: number } };
   try { const raw=await req.text(); if(raw.length>2_100_000) return fail(413,"denúncia muito grande"); b=JSON.parse(raw); } catch { return fail(400, "json"); }
@@ -219,8 +229,11 @@ Deno.serve(async (req) => {
   const { data: sender } = await db.from("identities").select("identity_key,attestation_hash").eq("user_id", b.reportedId).maybeSingle();
   if (!sender || !nacl.sign.detached.verify(cat(enc.encode("scs-sig-v1"), tag, enc.encode(reporterId)), sig, fromPg(sender.identity_key))) return fail(422, "assinatura do remetente");
 
+  const modPub = await adminEncryptionKey(db);
+  if (!modPub) return fail(503, "administrador indisponível");
+
   // 4. grava a evidência cifrada para a moderação (nunca em texto claro)
-  const evidence = seal(enc.encode(JSON.stringify({ plaintext: b.plaintext, frank: b.frank, reporterId, reportedId: b.reportedId, note: b.note?.trim() ?? "", proofs })), b64d(modPub));
+  const evidence = seal(enc.encode(JSON.stringify({ plaintext: b.plaintext, frank: b.frank, reporterId, reportedId: b.reportedId, note: b.note?.trim() ?? "", proofs })), modPub);
   const isCsam = b.category === "csam";
   const { data: report, error } = await db.from("reports").insert({
     reporter_id: reporterId,

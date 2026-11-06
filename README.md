@@ -1,3 +1,5 @@
+# ATENÇÃO: leia primeiro `LEIA-ANTES-DE-PUBLICAR.md` e `supabase-painel/LEIA-ME.txt` para as instruções atuais.
+
 > **Atualização:** para o fluxo atual de denúncias e administrador, siga `LEIA-ANTES-DE-PUBLICAR.md`. As instruções antigas sobre links de decisão e revisão independente foram substituídas.
 
 # SeuChatSeguro
@@ -14,7 +16,7 @@ Mensageiro web privado (E2EE) com Supabase. React + TypeScript + Vite. Fonte **I
 3. `npm install && npm run keys` e copie os valores gerados.
 4. Defina os segredos das Edge Functions:
    ```
-   supabase secrets set JWT_SECRET=<JWT Secret do projeto> FRANKING_SERVER_KEY=<...> MODERATION_PUBKEY=<...>
+   supabase secrets set JWT_SECRET=<JWT Secret do projeto> FRANKING_SERVER_KEY=<...>
    ```
    `JWT_SECRET` precisa ser **o mesmo JWT Secret do projeto** (Project Settings → API), senão a RLS não aceita o token.
 5. Para ocultar IP nas chamadas, configure um TURN compatível com credenciais REST (por exemplo, Coturn com `use-auth-secret`) e defina no Supabase `TURN_URL` e `TURN_SHARED_SECRET`. Gere um segredo forte (ex.: `openssl rand -hex 32`) e mantenha-o apenas no servidor.
@@ -46,7 +48,7 @@ Tudo vem de variáveis no topo de `src/styles/global.css` (`--accent`, `--accent
 - **Mensagens:** caixa selada (X25519) por mensagem, relay em `relay_messages`, **apagada do servidor assim que o destinatário confirma**; expira em 30 dias se não entregue.
 - **Histórico:** só no aparelho, IndexedDB cifrado (Argon2id + XChaCha20-Poly1305).
 - **Efêmeras:** o tempo conta a partir da leitura, nos dois lados.
-- **Denúncia:** message franking. O servidor verifica que a mensagem veio mesmo do remetente sem nunca ter lido o conteúdo; a evidência é guardada cifrada para a moderação (`npm run decrypt-evidence`). A prova verifica autoria e integridade, não o conteúdo. Um moderador humano revisa a denúncia e decide; existe uma apelação revisada por outra pessoa.
+- **Denúncia:** message franking. O servidor verifica a autoria da mensagem e recebe seu conteúdo quando ela é denunciada; a evidência é guardada cifrada para a conta administrativa e aberta no aparelho após login. A prova verifica autoria e integridade, não o conteúdo. Um administrador humano decide; a apelação pode ser analisada pelo mesmo administrador, sem revisão independente.
 - **Filtro de imagens:** hash perceptual (núcleo do PDQ) antes de enviar e ao receber, contra `public/blocklist.json` assinado (`scripts/sign-blocklist.mjs`). Fail-closed por padrão: imagem enviada ou recebida é bloqueada sem lista assinada válida. Obtenha autorização e dados de uma organização provedora; não use listas inventadas.
 
 ## 3.1 Recursos novos
