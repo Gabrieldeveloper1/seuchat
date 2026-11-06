@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
-import { IconLock, IconPhone, IconZap, Wordmark, IconLoader } from "../icons";
+import { Wordmark, IconLoader } from "../icons";
 import PasswordInput from "../components/PasswordInput";
+import WelcomeVideo from "../components/WelcomeVideo";
 import { isValidMnemonic } from "../lib/crypto";
 
 export default function Welcome() {
@@ -40,11 +41,7 @@ export default function Welcome() {
         <div className="logo"><Wordmark /></div>
         <span className="hero-kicker">Mensageiro privado · Criptografia de ponta a ponta</span>
         <h1>Seu espaço para <em>conversar</em>.<br />Com privacidade, sempre.</h1>
-        <ul>
-          <li><span><IconLock /></span> Criptografia de ponta a ponta em cada mensagem</li>
-          <li><span><IconPhone /></span> Encontre amigos pelo seu número exclusivo do app</li>
-          <li><span><IconZap /></span> Comece com seu nome e uma senha</li>
-        </ul>
+        <WelcomeVideo />
       </section>
 
       <section className="panel">

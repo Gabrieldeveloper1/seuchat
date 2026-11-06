@@ -88,4 +88,5 @@ Lojas: denúncia no app (já existe), bloqueio de usuário (já existe), exclus�
 - **Hoje:** a função `news` busca notícias; o Open-Meteo fornece clima e busca de cidade. A localização atual depende de permissão. Abrir uma notícia acessa o site de origem.
 - **Música:** Audius oferece faixas públicas; a busca iTunes oferece prévias. Disponibilidade e compatibilidade variam e os serviços externos recebem o IP. A CSP restringe mídia e imagens aos domínios configurados; faixas ou capas hospedadas em outros domínios podem não funcionar. Analise cada domínio adicional antes de autorizá-lo.
 - **Teste antes de produção:** os testes locais não substituem validação com duas contas e uma instância Supabase real, incluindo upload/download de anexos, expiração, chamadas e permissões. A segurança da implementação não foi auditada.
-- O vídeo de apresentação, o cadastro em etapas e o fluxo de restauração a partir da tela bloqueada ainda não foram implementados.
+- **Vídeo de apresentação:** tour visual, silencioso e em loop na tela de boas-vindas; o usuário pode pausar a animação. Fontes React/Remotion e instruções ficam em `video/`.
+- O cadastro em etapas e o fluxo de restauração a partir da tela bloqueada ainda não foram implementados.

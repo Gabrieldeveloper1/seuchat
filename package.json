@@ -10,7 +10,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "keys": "node scripts/gen-keys.mjs",
-    "decrypt-evidence": "node scripts/decrypt-evidence.mjs"
+    "decrypt-evidence": "node scripts/decrypt-evidence.mjs",
+    "video:studio": "remotion studio video/remotion/index.tsx",
+    "video:render": "remotion render video/remotion/index.tsx SeuChatSeguroTour public/seuchatseguro-tour.mp4 --codec=h264 --crf=25 --concurrency=2 && node scripts/remove-video-audio.mjs public/seuchatseguro-tour.mp4 && remotion render video/remotion/index.tsx SeuChatSeguroTourMobile public/seuchatseguro-tour-mobile.mp4 --codec=h264 --crf=25 --concurrency=2 && node scripts/remove-video-audio.mjs public/seuchatseguro-tour-mobile.mp4",
+    "video:poster": "remotion still video/remotion/index.tsx SeuChatSeguroTour public/seuchatseguro-tour-poster.png --frame=60",
+    "video:poster:mobile": "remotion still video/remotion/index.tsx SeuChatSeguroTourMobile public/seuchatseguro-tour-mobile-poster.png --frame=60",
+    "video:render:mobile": "remotion render video/remotion/index.tsx SeuChatSeguroTourMobile public/seuchatseguro-tour-mobile.mp4 --codec=h264 --crf=25 --concurrency=2 && node scripts/remove-video-audio.mjs public/seuchatseguro-tour-mobile.mp4"
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",
@@ -25,11 +30,13 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@remotion/cli": "4.0.454",
     "@types/libsodium-wrappers-sumo": "0.7.8",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "remotion": "4.0.454",
     "tweetnacl": "^1.0.3",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
