@@ -4,7 +4,7 @@ import { msgLabel, useApp } from "../lib/store";
 import { FileMessage, LiveWave, Ring, VoicePlayer } from "./Media";
 import { sfx } from "../lib/sounds";
 import { MAX_FILE } from "../lib/files";
-import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconSmile, IconSparkle, IconLoader, IconTrash, IconFile, IconFilm, IconImage, IconPause, IconUser, IconVideo, IconX } from "../icons";
+import { IconAttach, IconBack, IconBlock, IconCheck, IconCheckDouble, IconClock, IconFlag, IconMic, IconMore, IconPhone, IconReply, IconSend, IconSettings, IconShieldCheck, IconSmile, IconSparkle, IconLoader, IconTrash, IconFile, IconFilm, IconImage, IconPause, IconShare, IconUser, IconVideo, IconX } from "../icons";
 import { REACTIONS } from "../lib/reactions";
 import { TTL_OPTIONS, type Msg } from "../types";
 import { shortId } from "../lib/util";
@@ -18,6 +18,30 @@ import Dialog from "./Dialog";
 
 function time(ts: number) {
   return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function blobFromDataUrl(value: string): Blob {
+  const comma = value.indexOf(",");
+  if (!value.startsWith("data:") || comma < 0) throw new Error("Conteúdo da mensagem inválido.");
+  const header = value.slice(5, comma);
+  const mime = header.split(";")[0] || "application/octet-stream";
+  const body = value.slice(comma + 1);
+  if (header.includes(";base64")) {
+    const decoded = atob(body);
+    const bytes = new Uint8Array(decoded.length);
+    for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
+    return new Blob([bytes as BlobPart], { type: mime });
+  }
+  return new Blob([decodeURIComponent(body)], { type: mime });
+}
+
+function blobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Não foi possível preparar o áudio."));
+    reader.onerror = () => reject(new Error("Não foi possível preparar o áudio."));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function ProfileDialog({ id, onClose }: { id: string; onClose: () => void }) {
@@ -232,7 +256,7 @@ function ChatMenu({ peer, onClose, onProfile, onGroup, onAssistant }: { peer: st
 
 export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { peer: string; onBack: () => void; onAssistant: () => void; onReport: (m: Msg) => void; toast: (t: string) => void }) {
   const app = useApp();
-  const { local, userId, activity, typing, sendActivity, sendReaction, sendText, sendImage, sendAudio, sendFile, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
+  const { local, userId, activity, typing, sendActivity, sendReaction, sendText, sendImage, sendAudio, sendFile, downloadFileBlob, markRead, setBlocked, acceptContact, deleteMessage, startCall, startGroupCall, acceptGroup, leaveGroup } = app;
   const isGroup = peer.startsWith("g:");
   const contact = isGroup ? undefined : local?.contacts.find((c) => c.id === peer);
   const group = isGroup ? local?.groups.find((g) => g.id === peer.slice(2)) : undefined;
@@ -245,6 +269,10 @@ export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { p
   const [mentions, setMentions] = useState<string[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [dlg, setDlg] = useState<"profile" | "group" | "menu" | null>(null);
+  const [forwarding, setForwarding] = useState<Msg | null>(null);
+  const [forwardTargets, setForwardTargets] = useState<string[]>([]);
+  const [forwardBusy, setForwardBusy] = useState(false);
+  const [forwardError, setForwardError] = useState("");
   const [recSec, setRecSec] = useState<number | null>(null);
   const rec = useRef<Recorder | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -342,6 +370,60 @@ export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { p
     setSending(true);
     try { await f(); } catch (e) { toast(e instanceof Error ? e.message : fail); } finally { setSending(false); }
   }
+  const forwardTo = async (target: string, message: Msg) => {
+    if (message.kind === "image" && message.image) {
+      const blob = blobFromDataUrl(message.image);
+      await sendImage(target, new File([blob], "imagem-encaminhada.jpg", { type: blob.type || "image/jpeg" }));
+    } else if (message.kind === "audio" && message.audio) {
+      const blob = blobFromDataUrl(message.audio);
+      await sendAudio(target, { dataUrl: message.audio, blob, mime: blob.type || "audio/webm", dur: message.dur ?? 0, wave: message.wave ?? [] });
+    } else if (message.file) {
+      const blob = await downloadFileBlob(message.file);
+      if (message.file.voice) {
+        await sendAudio(target, {
+          dataUrl: await blobAsDataUrl(blob),
+          blob,
+          mime: message.file.mime || blob.type || "audio/webm",
+          dur: message.file.dur ?? message.dur ?? 0,
+          wave: message.wave ?? [],
+        });
+      } else {
+        await sendFile(target, new File([blob], message.file.name, { type: message.file.mime || blob.type }));
+      }
+    } else {
+      await sendText(target, message.text ?? msgLabel(message));
+    }
+    if ((message.kind !== "text") && message.text?.trim()) await sendText(target, message.text);
+  };
+  const confirmForward = async () => {
+    if (!forwarding || !forwardTargets.length || forwardBusy) return;
+    setForwardBusy(true);
+    setForwardError("");
+    const completed: string[] = [];
+    const failed: string[] = [];
+    let lastError = "";
+    try {
+      for (const target of forwardTargets) {
+        try {
+          await forwardTo(target, forwarding);
+          completed.push(target);
+        } catch (e) {
+          failed.push(target);
+          lastError = e instanceof Error ? e.message : "Não foi possível encaminhar a mensagem.";
+        }
+      }
+      if (failed.length) {
+        setForwardTargets(failed);
+        setForwardError(`${completed.length ? `Encaminhada para ${completed.length} conversa(s). ` : ""}${lastError} Confira o histórico antes de tentar novamente, pois um envio pode ter sido parcial.`);
+        return;
+      }
+      setForwarding(null);
+      setForwardTargets([]);
+      toast(`Mensagem encaminhada para ${completed.length} ${completed.length === 1 ? "conversa" : "conversas"}.`);
+    } finally {
+      setForwardBusy(false);
+    }
+  };
   const send = () => {
     const draft = text;
     if (!draft.trim() || locked) return;
@@ -393,6 +475,14 @@ export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { p
   const isOnline = !!contact && !!activity[contact.id] && now - activity[contact.id] < 65_000;
   const subtitle = typers.length ? (group ? `${typers.slice(0, 2).join(", ")} ${typers.length > 1 ? "estão digitando" : "está digitando"}` : "digitando…")
     : group ? `${group.members.length} membros` : isOnline ? "Online" : lastSeen ? `Visto pela última vez em ${new Date(lastSeen).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : "Visto pela última vez: ainda não disponível";
+  const forwardDestinations = [
+    ...(local?.contacts ?? []).filter((c) => c.id !== peer && !c.blocked && !c.requested).map((c) => ({ id: c.id, name: c.alias, seed: c.id, avatar: c.avatar, group: false })),
+    ...(local?.groups ?? []).filter((g) => {
+      if (g.id === peer.slice(2) || g.requested) return false;
+      const role = g.roles?.find((r) => r.id === (g.memberRoles?.[userId ?? ""] ?? "everyone"));
+      return g.owner === userId || !!role?.permissions.includes("send_messages");
+    }).map((g) => ({ id: `g:${g.id}`, name: g.name, seed: g.id, avatar: g.avatar, group: true })),
+  ];
 
   return (
     <>
@@ -472,6 +562,7 @@ export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { p
               <div className={`msg-actions ${m.dir}`}>
                 <div className="reaction-picker" aria-label="Reagir à mensagem">{REACTIONS.map((emoji) => <button key={emoji} aria-label={`Reagir com ${emoji}`} disabled={m.pending} onClick={() => { void sendReaction(peer, m, emoji).catch((e) => toast(e instanceof Error ? e.message : "Não foi possível reagir")); setSel(null); }}>{emoji}</button>)}</div>
                 <button onClick={() => { setReplyTo(m); setSel(null); ta.current?.focus(); }}><IconReply /> Responder</button>
+                <button disabled={m.pending || m.ttl > 0} title={m.ttl > 0 ? "Mensagens temporárias não podem ser encaminhadas" : "Encaminhar mensagem"} onClick={() => { setForwarding(m); setForwardTargets([]); setForwardError(""); setSel(null); }}><IconShare /> Encaminhar</button>
                 {m.dir === "in" && m.frank && !m.reported && <button className="bad" onClick={() => { setSel(null); onReport(m); }}><IconFlag /> Denunciar</button>}
                 <button className="bad" onClick={() => { deleteMessage(m.id); setSel(null); }}><IconTrash /> Apagar</button>
               </div>
@@ -549,6 +640,25 @@ export default function Chat({ peer, onBack, onAssistant, onReport, toast }: { p
       {dlg === "menu" && <ChatMenu peer={peer} onAssistant={onAssistant} onClose={() => setDlg(null)} onProfile={() => setDlg("profile")} onGroup={() => setDlg("group")} />}
       {dlg === "profile" && contact && <ProfileDialog id={contact.id} onClose={() => setDlg(null)} />}
       {dlg === "group" && group && <GroupDialog gid={group.id} onClose={() => setDlg(null)} toast={toast} />}
+      {forwarding && <Dialog title="Encaminhar mensagem" onClose={() => { if (!forwardBusy) { setForwarding(null); setForwardTargets([]); setForwardError(""); } }}>
+        <p className="muted small">Escolha uma ou mais conversas. A mensagem e os anexos serão enviados com criptografia para cada destino.</p>
+        <div className="forward-target-list" role="group" aria-label="Conversas disponíveis">
+          {forwardDestinations.map((destination) => {
+            const chosen = forwardTargets.includes(destination.id);
+            return <button type="button" key={destination.id} className={`forward-target ${chosen ? "on" : ""}`} aria-pressed={chosen} disabled={forwardBusy} onClick={() => setForwardTargets((current) => chosen ? current.filter((id) => id !== destination.id) : [...current, destination.id])}>
+              <Avatar name={destination.name} seed={destination.seed} src={destination.avatar} group={destination.group} size="sm" />
+              <span><b>{destination.name}</b><small>{destination.group ? "Grupo" : "Contato"}</small></span>
+              <i aria-hidden="true">{chosen ? "✓" : ""}</i>
+            </button>;
+          })}
+          {!forwardDestinations.length && <p className="forward-empty">Não há outros contatos ou grupos disponíveis para encaminhar.</p>}
+        </div>
+        {forwardError && <div className="error" role="alert">{forwardError}</div>}
+        <div className="row-btns">
+          <button className="btn" disabled={forwardBusy} onClick={() => { setForwarding(null); setForwardTargets([]); }}>Cancelar</button>
+          <button className="btn primary" disabled={!forwardTargets.length || forwardBusy} onClick={() => void confirmForward()}>{forwardBusy ? "Encaminhando…" : `Encaminhar${forwardTargets.length ? ` (${forwardTargets.length})` : ""}`}</button>
+        </div>
+      </Dialog>}
     </>
   );
 }

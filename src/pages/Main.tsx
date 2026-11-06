@@ -552,7 +552,7 @@ export default function Main() {
         ) : (
           <div className="placeholder welcome-pane"><IconChat style={{ width: 56, height: 56 }} /><div><b>Suas conversas</b><span>Selecione uma conversa para começar.</span></div><div className="pane-feats"><span><IconLock /> Ponta a ponta</span><span><IconShieldCheck /> Privacidade</span></div></div>
         )}
-        <div className="nodia-host" hidden={!assistant}><NodiaChat onBack={closeAssistant} /></div>
+        <div className="nodia-host" hidden={!assistant}><NodiaChat onBack={closeAssistant} active={assistant} /></div>
       </main>
 
       {dlg === "add" && <AddContact onClose={() => setDlg(null)} />}

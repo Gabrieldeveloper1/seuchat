@@ -13,7 +13,7 @@ import { buildReport, frankMessage, verifyIncoming, type ReportPayload, type Rep
 import { dataUrlIsBlocked, imageSendingAllowed, loadBlocklist, prepareImage } from "./imageFilter";
 import { decryptProfile, encryptProfile, profileFingerprint } from "./profileSync";
 import { applyReaction, REACTIONS, type ReactionEvent } from "./reactions";
-import { MAX_FILE, downloadDecrypted, uploadEncrypted, videoFramesBlocked, videoInfo } from "./files";
+import { MAX_FILE, downloadDecrypted, downloadDecryptedBlob, uploadEncrypted, videoFramesBlocked, videoInfo } from "./files";
 
 export function msgLabel(m: Pick<Msg, "kind" | "file">): string {
   if (m.kind === "audio") return "Mensagem de voz";
@@ -76,6 +76,7 @@ interface Ctx {
   sendAudio(peer: string, rec: { dataUrl: string; blob: Blob; mime: string; dur: number; wave: number[] }, onProgress?: (p: number) => void): Promise<void>;
   sendFile(peer: string, file: File, onProgress?: (p: number) => void): Promise<void>;
   downloadFile(f: FileRef, onProgress?: (p: number) => void): Promise<string>;
+  downloadFileBlob(f: FileRef, onProgress?: (p: number) => void): Promise<Blob>;
   fetchNews(cat: string): Promise<{ items: NewsItem[]; updatedAt: number }>;
   setProfileImages(avatar?: string | null, banner?: string | null): void;
   createGroup(name: string, members: string[]): Promise<string>;
@@ -1055,6 +1056,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const downloadFileBlob = useCallback(async (f: FileRef, onProgress?: (p: number) => void) => {
+    const sess = sessRef.current;
+    if (!sess) throw new Error("Sem conexão com o servidor");
+    try { return await downloadDecryptedBlob(sess.getJwt(), f, onProgress); }
+    catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+      await sess.refresh();
+      return downloadDecryptedBlob(sess.getJwt(), f, onProgress);
+    }
+  }, []);
+
   const setProfileImages = useCallback(
     (avatar?: string | null, banner?: string | null) => {
       update((s) => {
@@ -1335,12 +1347,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl,
       profileSyncStatus, sendReaction, sendText, sendImage, markRead, report, listCases, appealCase, adminCase, setAutolock, deleteAccount,
-      sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
+      sendAudio, sendFile, downloadFile, downloadFileBlob, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera,
     }),
     [announce, nodiaBusy, nodiaDraft, consentNodia, clearNodia, sendNodia, phase, local, userId, busy, error, notice, online, activity, typing, sendActivity, onboardingMnemonic, createAccount, addContactByNumber, setProfileName, resolveProfileConflict, changePassword, deleteMessage, markBackupDone, setTheme, restoreAccount, unlock, lock, reconnect,
       addContact, renameContact, setBlocked, acceptContact, removeContact, setContactTtl, profileSyncStatus, sendReaction, sendText, sendImage, markRead, report, listCases, appealCase, adminCase, setAutolock, deleteAccount,
-      sendAudio, sendFile, downloadFile, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
+      sendAudio, sendFile, downloadFile, downloadFileBlob, fetchNews, setProfileImages, createGroup, updateGroup, leaveGroup, acceptGroup, setCallRelayOnly,
       call, startCall, startGroupCall, acceptCall, rejectCall, hangup, toggleMic, toggleCam, shareScreen, switchCamera],
   );
 

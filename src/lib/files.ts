@@ -50,10 +50,11 @@ export async function uploadEncrypted(jwt: string, data: Uint8Array, kind: "vide
 }
 
 const cache = new Map<string, string>();
+const blobCache = new Map<string, Blob>();
 
 /** Baixa, confere a integridade e decifra. Devolve uma URL local (blob:) */
 export async function downloadDecrypted(jwt: string, f: FileRef, onProgress?: (p: number) => void): Promise<string> {
-  if (f.expiresAt && Date.now() >= Date.parse(f.expiresAt)) { const cached = cache.get(f.id); if (cached) URL.revokeObjectURL(cached); cache.delete(f.id); throw new Error("Vídeo expirado após 10 dias."); }
+  if (f.expiresAt && Date.now() >= Date.parse(f.expiresAt)) { const cached = cache.get(f.id); if (cached) URL.revokeObjectURL(cached); cache.delete(f.id); blobCache.delete(f.id); throw new Error("Vídeo expirado após 10 dias."); }
   const hit = cache.get(f.id);
   if (hit) return hit;
   const url = await requestDownload(jwt, f.id);
@@ -86,7 +87,16 @@ export async function downloadDecrypted(jwt: string, f: FileRef, onProgress?: (p
   }
   const out = URL.createObjectURL(blob);
   cache.set(f.id, out);
+  blobCache.set(f.id, blob);
   return out;
+}
+
+/** Devolve o Blob já decifrado sem reler a URL blob: (útil para reenviar com nova chave). */
+export async function downloadDecryptedBlob(jwt: string, f: FileRef, onProgress?: (p: number) => void): Promise<Blob> {
+  await downloadDecrypted(jwt, f, onProgress);
+  const blob = blobCache.get(f.id);
+  if (!blob) throw new Error("Anexo não está disponível para encaminhar.");
+  return blob;
 }
 
 function loadVideo(src: string): Promise<HTMLVideoElement> {

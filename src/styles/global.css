@@ -959,3 +959,85 @@ body,button,input,textarea,select { font-family:var(--font); }
 :root[data-theme="light"] .btn.primary,:root[data-theme="light"] .nodia-send,:root[data-theme="light"] .fab,
 :root[data-theme="light"] .tabs button.on,:root[data-theme="light"] .seg button.on,:root[data-theme="light"] .chip.on { border:1px solid #aaa; }
 :root[data-theme="light"] .btn.primary:hover,:root[data-theme="light"] .nodia-send:not(:disabled):hover,:root[data-theme="light"] .fab:hover { background:#e5e5e5; border-color:#888; }
+
+/* Assistente: conteúdo, respostas e campo permanecem dentro da tela. */
+.main > .nodia-host:not([hidden]) { display:flex; width:100%; height:100%; min-width:0; min-height:0; flex:1 1 0; overflow:hidden; }
+.nodia-host .nodiapane { display:flex; width:100%; height:100%; min-width:0; min-height:0; flex:1 1 0; overflow:hidden; }
+.nodia-head { flex:0 0 auto; min-width:0; }
+.nodia-head-text { min-width:0; }
+.nodia-head-text strong { min-width:0; flex-wrap:wrap; }
+.nodia-scroll { width:100%; min-width:0; min-height:0; flex:1 1 0; overflow-x:hidden; overflow-y:auto; }
+.nodia-inner { box-sizing:border-box; width:100%; min-width:0; }
+.nodia-messages,.nodia-line,.nodia-bubble { min-width:0; }
+.nodia-bubble { overflow-wrap:anywhere; word-break:break-word; }
+.nodia-compose { box-sizing:border-box; width:100%; min-width:0; flex:0 0 auto; }
+.nodia-compose-inner,.nodia-input-wrap { box-sizing:border-box; width:100%; min-width:0; }
+.nodia-input-wrap textarea { min-width:0; resize:none; overflow-y:auto; }
+.nodia-thinking .nodia-loader { width:100px; min-width:100px; height:80px; overflow:visible; }
+.nodia-thinking .uv-cup-loader { margin:0; transform:scale(.9); transform-origin:center; }
+.nodia-thinking .uv-cup-loader .uv-cup-cup { animation:nodia-coffee-bob 2.2s ease-in-out infinite; }
+.nodia-thinking .uv-cup-loader .uv-cup-cup { width:34px; height:24px; }
+.nodia-thinking .uv-cup-loader .uv-cup-cup::before { top:21px; }
+.nodia-thinking .uv-cup-loader .uv-cup-cup .uv-cup-cup-handle { width:7px; height:12px; right:-7px; }
+.nodia-thinking .uv-cup-loader .uv-cup-cup .uv-cup-smoke { width:18px; height:28px; }
+.nodia-thinking .uv-cup-loader .uv-cup-cup .uv-cup-smoke { background:rgba(255,255,255,.52); filter:blur(5px); }
+@keyframes nodia-coffee-bob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-2px); } }
+
+/* Central de ajuda em linhas de ação, no padrão das referências enviadas. */
+.nodia-help { max-width:620px; margin:24px auto 10px; }
+.nodia-help-heading { display:flex; align-items:end; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.nodia-help-heading h2 { margin:6px 0 0; font-size:clamp(18px,2vw,22px); letter-spacing:-.025em; }
+.nodia-help-heading p { max-width:240px; margin:0; color:var(--muted); font-size:13px; line-height:1.45; }
+.nodia-help-list { display:grid; gap:8px; }
+.nodia-help-list button { display:grid; grid-template-columns:40px minmax(0,1fr) 20px; gap:12px; align-items:center; width:100%; min-height:58px; padding:8px 14px; border:1px solid var(--border-2); border-radius:10px; background:var(--surface-2); color:var(--text); text-align:left; font:inherit; cursor:pointer; transition:background .16s,border-color .16s,transform .16s; }
+.nodia-help-list button:hover { background:var(--surface-3); border-color:var(--accent); transform:translateY(-1px); }
+.nodia-help-list button:focus-visible,.nodia-speak:focus-visible,.nodia-call-button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.nodia-help-icon { display:grid; place-items:center; width:38px; height:38px; border-radius:9px; background:var(--surface); color:var(--accent); }
+.nodia-help-icon svg,.nodia-help-arrow { width:19px; height:19px; }
+.nodia-help-copy { display:grid; gap:3px; min-width:0; }
+.nodia-help-copy b { font-size:14px; }
+.nodia-help-copy small { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.nodia-help-arrow { color:var(--muted); }
+.nodia-speak { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:38px; margin-top:10px; padding:4px 9px; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--muted); font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
+.nodia-speak:hover { background:var(--surface-2); color:var(--text); border-color:var(--border-2); }
+.nodia-speak svg { width:16px; height:16px; }
+.nodia-voice-dialog { display:grid; justify-items:center; gap:14px; text-align:center; }
+.nodia-voice-dialog p { max-width:440px; margin:0; line-height:1.5; }
+.nodia-voice-status { font-weight:650; }
+.nodia-voice-avatar { position:relative; width:86px; height:86px; padding:4px; border:1px solid var(--border-2); border-radius:26px; background:var(--surface-2); }
+.nodia-voice-avatar img { width:100%; height:100%; border-radius:21px; object-fit:cover; }
+.nodia-voice-avatar>span { position:absolute; right:-7px; bottom:-7px; display:grid; place-items:center; width:36px; height:36px; border:2px solid var(--surface); border-radius:50%; background:var(--accent); color:#fff; }
+.nodia-voice-avatar>span svg { width:18px; height:18px; }
+.nodia-voice-avatar.active>span { animation:nodia-voice-pulse 1.5s ease-out infinite; }
+@keyframes nodia-voice-pulse { 50% { box-shadow:0 0 0 8px color-mix(in srgb,var(--accent) 18%,transparent); } }
+.nodia-voice-dialog .row-btns { justify-content:center; width:100%; }
+.nodia-voice-dialog .row-btns .btn { min-height:46px; }
+.forward-target-list { display:grid; gap:7px; max-height:min(45dvh,420px); overflow-y:auto; overscroll-behavior:contain; }
+.forward-target { display:flex; align-items:center; gap:11px; width:100%; min-height:56px; padding:7px 10px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2); color:var(--text); text-align:left; cursor:pointer; }
+.forward-target:hover,.forward-target.on { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--surface-2)); }
+.forward-target>span { display:grid; gap:3px; flex:1; min-width:0; }
+.forward-target b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.forward-target small { color:var(--muted); }
+.forward-target>i { display:grid; place-items:center; width:22px; height:22px; border:1px solid var(--border-2); border-radius:50%; font-size:13px; font-style:normal; }
+.forward-target.on>i { border-color:var(--accent); background:var(--accent); color:#fff; }
+.forward-target:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.forward-empty { margin:0; padding:16px; color:var(--muted); text-align:center; }
+@media(max-width:760px) {
+  .nodia-head { gap:8px; padding-left:10px; padding-right:10px; }
+  .nodia-head-avatar { width:38px; height:38px; }
+  .nodia-head-text strong { font-size:14px; }
+  .nodia-help { margin-top:20px; }
+  .nodia-help-heading { display:block; }
+  .nodia-help-heading p { max-width:none; margin-top:6px; }
+  .nodia-compose { padding-bottom:calc(10px + var(--safe-b)); }
+  .nodia-thinking { flex-wrap:wrap; }
+}
+@media(max-width:420px) {
+  .nodia-help-list button { min-height:54px; padding:7px 10px; gap:9px; }
+  .nodia-help-icon { width:36px; height:36px; }
+  .nodia-bubble { max-width:min(88%,600px); padding:11px 12px; }
+  .nodia-thinking b { flex:1; margin-left:0; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .nodia-help-list button,.nodia-voice-avatar.active>span { transition:none; animation:none; }
+}
